@@ -168,11 +168,7 @@ cd task-timer
 
 > This repository does not yet have a public remote configured. If you were handed the source as a folder or an archive, just `cd` into it — every command below works from the repository root.
 
-Download the Go dependencies (optional; the build does it for you):
-
-```bash
-go mod download
-```
+**Every Go dependency is vendored in** — the full source of both modules' dependencies is committed under `vendor/` (and `server/vendor/`). There is no `go mod download`, no network fetch, and no version-resolution step: `go build` uses the vendored tree automatically. You can build with the network unplugged. The only things you provide are the Go toolchain and, for the desktop app, a C compiler (see below) — a native GUI is compiled, not interpreted, so that part cannot be vendored away.
 
 ---
 

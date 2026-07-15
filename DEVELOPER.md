@@ -362,10 +362,18 @@ make icons    # regenerate icons from internal/assets/icon.svg
 go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 ```
 
+**Dependencies are vendored.** Both modules commit the full source of their
+dependencies under `vendor/` (and `server/vendor/`), so `go build`/`go test` run
+against the vendored tree with no module download — builds work with the network
+off. After changing `go.mod`, re-run `go mod vendor` (and `cd server && go mod
+vendor`) and commit the result so the vendored tree stays in step.
+
 cgo is **mandatory** for the client — `go-sqlite3` compiles SQLite and Fyne binds
-OpenGL/X11 — so `CGO_ENABLED=0` will not build it. The prerequisites (C compiler
-and, on Linux, the X11/GL dev headers) are in the [README](README.md#prerequisites).
-The server module is pure Go and has none of these constraints.
+OpenGL/X11 — so `CGO_ENABLED=0` will not build it. That is the one prerequisite
+vendoring cannot remove: a native GUI is compiled C, not vendorable Go source. The
+C compiler and, on Linux, the X11/GL dev headers are in the
+[README](README.md#prerequisites). The server module is pure Go and has none of
+these constraints.
 
 ---
 
