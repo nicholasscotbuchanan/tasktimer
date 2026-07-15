@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Task Timer sync daemon, as a per-user LaunchAgent.
+
+  __EXEC__ is replaced with the absolute path to TaskTimer-Sync inside the
+  installed app bundle by Contents/Resources/sync-agent.sh, which is what
+  installs this file. Do not load this template directly.
+
+  It carries no credentials: the daemon reads sync.env out of its own data
+  directory. An EnvironmentVariables block here would put the API token in a
+  plist, which is exactly what keeping it out of the config file was for.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tasktimer.sync</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__EXEC__</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Restart if it crashes, but do not fight a clean exit. -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Its own log, rather than the system-wide one. -->
+    <key>StandardOutPath</key>
+    <string>__LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

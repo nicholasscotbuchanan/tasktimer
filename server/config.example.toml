@@ -1,0 +1,65 @@
+# Task Timer gateway configuration.
+#
+# Installed to /etc/task-timer-server/config.toml.
+#
+# The two SECRETS are deliberately not in this file. They are read from systemd
+# credentials — see task-timer-server.service — because this file is the one
+# people paste into support tickets. Create them as root, mode 0600:
+#
+#   /etc/task-timer-server/atlassian_client_secret
+#   /etc/task-timer-server/token_encryption_key
+#
+# Generate the encryption key once, and never regenerate it: it decrypts the
+# stored Jira refresh tokens, and a new key silently invalidates every one of
+# them, forcing every user to reconnect.
+#
+#   task-timer-server gen-key > /etc/task-timer-server/token_encryption_key
+#   chmod 600 /etc/task-timer-server/token_encryption_key
+
+# --- service ----------------------------------------------------------------
+
+# Bind address. Leave on loopback and put a TLS-terminating reverse proxy in
+# front; the OAuth flow sends a bearer token over this connection.
+host = "127.0.0.1"
+port = 8080
+
+# The URL browsers reach this server on. It must match the redirect URI
+# registered with Atlassian byte for byte, or consent fails with redirect_uri
+# mismatch.
+public_url = "https://tasktimer.example.com"
+
+database_url = "sqlite:////var/lib/task-timer-server/server.db"
+
+# --- atlassian oauth 2.0 (3LO) ----------------------------------------------
+# From the Atlassian developer console. Register the callback as:
+#     <public_url>/auth/callback
+# and grant the scopes: read:me, read:jira-work, write:jira-work, offline_access.
+#
+# offline_access is not optional. Without it Atlassian issues no refresh token,
+# the grant dies after an hour, and every user is asked to reconsent every day.
+
+[atlassian]
+client_id = ""
+
+# --- jira -------------------------------------------------------------------
+
+[jira]
+# Selects which issues clients see as timer targets. This is the server's query,
+# not the client's: a client that could send arbitrary JQL could read any issue
+# its user can see, which is a wider surface than a timer needs.
+jql = "assignee = currentUser() AND statusCategory != Done"
+
+done_transition = "Done"
+
+# Let clients close Jira issues. Off by default — writing to a shared board is
+# opt-in. The client has its own switch as well, and both must be on.
+allow_complete = false
+
+# --- registration -----------------------------------------------------------
+# Anyone who can consent to the Atlassian app can register themselves; that is
+# what makes setup a single click. It is already bounded, because a stranger's
+# grant carries no access to your Jira site and so buys them nothing.
+#
+# Set this to fence it tighter. Empty means "no domain restriction".
+#
+# allowed_email_domains = ["example.com"]

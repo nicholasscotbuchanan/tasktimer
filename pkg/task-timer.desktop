@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Task Timer
+GenericName=Task Timer
+Comment=Cross-platform task timer with GUI and synchronization support
+Exec=/usr/local/bin/task-timer
+Icon=task-timer
+Terminal=false
+Categories=Utility;
+Keywords=timer;tasks;productivity;
+StartupNotify=true

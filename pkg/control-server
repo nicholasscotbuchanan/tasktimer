@@ -1,0 +1,19 @@
+Package: task-timer-server
+Version: 1.0.0
+Section: net
+Priority: optional
+Architecture: arm64
+Maintainer: Task Timer <support@example.com>
+Depends: adduser
+Description: Task Timer gateway
+ The server side of Task Timer. Desktop clients push their timed work sessions
+ here and this service writes them to Jira.
+ .
+ Enterprise credentials never leave this machine: each user connects their own
+ Atlassian account over OAuth 2.0 (3LO), so work logs are authored in Jira by
+ the person who did the work rather than by a shared service account.
+ .
+ The gateway is a single static Go binary; it has no runtime dependencies.
+ .
+ This package is the SERVER. The desktop application is in the task-timer
+ package and is installed separately.

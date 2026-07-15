@@ -1,0 +1,111 @@
+# Cross-compile container: linux/arm64 + windows/amd64 + windows/arm64.
+#
+# CGO is mandatory (Fyne needs X11/GL, go-sqlite3 needs a C compiler), so the
+# X11/GL dev packages and the mingw-w64 toolchain both stay.
+#
+# Two Windows toolchains, because Debian's mingw-w64 only targets x86: it has
+# no aarch64-w64-mingw32-*, so windows/arm64 cannot be built with it at all.
+# llvm-mingw is a clang-based mingw that does target aarch64, so windows/arm64
+# goes through it. windows/amd64 stays on the GCC mingw it has always used.
+#
+# The container writes to its own /out. The Makefile bind-mounts the host's
+# build/bin over /out, so on the HOST every artifact still lands under build/.
+# Packaging runs are invoked with the repo bind-mounted at /src, so the
+# pkg/*.sh scripts write straight into the host's build/ tree as well.
+# Go 1.26: the server module depends on modernc.org/sqlite, whose go directive
+# is 1.25, so the toolchain floor is higher than the client alone would need.
+FROM --platform=linux/arm64 golang:1.26-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    pkg-config \
+    libx11-dev \
+    libxrandr-dev \
+    libxcursor-dev \
+    libxinerama-dev \
+    libxxf86vm-dev \
+    libxss-dev \
+    libxkbcommon-dev \
+    libgl1-mesa-dev \
+    libegl-dev \
+    libxi-dev \
+    gcc \
+    g++ \
+    gcc-mingw-w64-x86-64 \
+    g++-mingw-w64-x86-64 \
+    mingw-w64 \
+    dpkg-dev \
+    fakeroot \
+    rpm \
+    nsis \
+    file \
+    curl \
+    xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+# llvm-mingw: the aarch64-w64-mingw32-* toolchain for windows/arm64.
+# The ubuntu-22.04-aarch64 tarball is the host-native build for this
+# linux/arm64 builder (its glibc floor is below bookworm's).
+ARG LLVM_MINGW_VERSION=20260616
+RUN curl -fsSL -o /tmp/llvm-mingw.tar.xz \
+      "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VERSION}/llvm-mingw-${LLVM_MINGW_VERSION}-ucrt-ubuntu-22.04-aarch64.tar.xz" \
+ && mkdir -p /opt/llvm-mingw \
+ && tar -xJf /tmp/llvm-mingw.tar.xz -C /opt/llvm-mingw --strip-components=1 \
+ && rm /tmp/llvm-mingw.tar.xz \
+ && /opt/llvm-mingw/bin/aarch64-w64-mingw32-clang --version
+
+# Appended, not prepended: llvm-mingw ships no bare `gcc`, but keeping it after
+# the system bin dirs guarantees the linux/arm64 CC=gcc build cannot drift onto
+# a clang that happens to share a name.
+ENV PATH="${PATH}:/opt/llvm-mingw/bin"
+
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+# The server is a second, independent Go module (pure Go, no CGO). Pre-download
+# its dependencies too, so packaging runs are offline-clean.
+COPY server/go.mod server/go.sum ./server/
+RUN cd server && go mod download
+
+# Only what the cross-compile actually needs. build/, out/, dist/ and var/ are
+# excluded from the context by .dockerignore.
+COPY cmd/      ./cmd/
+COPY internal/ ./internal/
+COPY tools/    ./tools/
+COPY pkg/      ./pkg/
+COPY scripts/  ./scripts/
+COPY server/   ./server/
+
+ARG VERSION=1.0.0
+ARG GIT_COMMIT=unknown
+ENV VERSION=${VERSION} GIT_COMMIT=${GIT_COMMIT}
+
+RUN mkdir -p /out
+
+# Both binaries, all three targets, into /out/<goos>-<goarch>/.
+#
+# -H windowsgui goes on the GUI binary only: it suppresses the console window.
+# The sync daemon is a console program and must not get it.
+CMD ["/bin/sh", "-c", "set -eu; \
+  LDFLAGS=\"-s -w -X main.version=${VERSION} -X main.commit=${GIT_COMMIT}\"; \
+  echo '>> linux/arm64'; \
+  mkdir -p /out/linux-arm64; \
+  GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=gcc CXX=g++ \
+    go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-arm64/task-timer ./cmd/task-timer; \
+  GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=gcc CXX=g++ \
+    go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-arm64/task-timer-sync ./cmd/task-timer-sync; \
+  for target in amd64:x86_64-w64-mingw32-gcc:x86_64-w64-mingw32-g++ \
+                arm64:aarch64-w64-mingw32-clang:aarch64-w64-mingw32-clang++; do \
+    arch=${target%%:*}; rest=${target#*:}; cc=${rest%%:*}; cxx=${rest#*:}; \
+    echo \">> windows/$arch ($cc)\"; \
+    mkdir -p \"/out/windows-$arch\"; \
+    GOOS=windows GOARCH=$arch CGO_ENABLED=1 CC=$cc CXX=$cxx \
+      go build -trimpath -ldflags \"$LDFLAGS -H windowsgui\" \
+        -o \"/out/windows-$arch/task-timer.exe\" ./cmd/task-timer; \
+    GOOS=windows GOARCH=$arch CGO_ENABLED=1 CC=$cc CXX=$cxx \
+      go build -trimpath -ldflags \"$LDFLAGS\" \
+        -o \"/out/windows-$arch/task-timer-sync.exe\" ./cmd/task-timer-sync; \
+  done; \
+  find /out -type f -exec ls -la {} +"]

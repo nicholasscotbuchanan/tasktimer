@@ -1,0 +1,10 @@
+Package: task-timer
+Version: 1.0.0
+Section: utils
+Priority: optional
+Architecture: arm64
+Maintainer: Task Timer <support@example.com>
+Depends: libc6 (>= 2.34)
+Description: Task Timer application
+ A cross-platform task timer with GUI and synchronization support.
+ Ships the task-timer GUI and the task-timer-sync headless sync daemon.

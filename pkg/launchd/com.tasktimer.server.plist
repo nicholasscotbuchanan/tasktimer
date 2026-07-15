@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Task Timer gateway, as a per-user LaunchAgent.
+
+  __EXEC__ and __LOG__ are replaced with absolute paths by server-agent.sh, which
+  is what installs this file. Do not load this template directly.
+
+  It carries no credentials and no EnvironmentVariables block. The gateway reads
+  its config from ~/Library/Application Support/TaskTimerServer/config.toml and
+  the two secrets from files beside it, exactly as the server resolves them on
+  its own - so nothing sensitive is baked into a plist that sits in the user's
+  LaunchAgents directory.
+
+  This is a LaunchAgent (per-user, no root) rather than a system LaunchDaemon on
+  purpose: the .app is a user-installed test build, and an Agent needs no sudo to
+  load. A production gateway on a shared host wants a LaunchDaemon under
+  /Library/LaunchDaemons instead.
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.tasktimer.server</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__EXEC__</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <!-- Restart if it crashes, but do not fight a clean exit. -->
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+
+    <!-- Its own log, rather than the system-wide one. -->
+    <key>StandardOutPath</key>
+    <string>__LOG__</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

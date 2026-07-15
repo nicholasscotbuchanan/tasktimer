@@ -1,0 +1,67 @@
+# syntax=docker/dockerfile:1
+#
+# Install and start the gateway FROM ITS .deb - the request this file answers.
+#
+# It is two stages: the first builds the server .deb from source, the second
+# installs that .deb into a clean Debian image and runs the binary the package
+# put in place. So it exercises the real package (postinst, service user, config
+# and systemd unit all land), then starts the server directly - a container has
+# no systemd, so the entrypoint runs /usr/bin/task-timer-server itself.
+#
+#   docker build -f Dockerfile.server -t task-timer-server .
+#   docker run --rm -p 8080:8080 task-timer-server
+#
+# Then browse http://localhost:8080/. Configuration is via TASK_TIMER_SERVER_*
+# environment variables; see pkg/docker-server-entrypoint.sh. With no -e flags it
+# starts with placeholders and listens, which is enough to smoke-test the package.
+#
+# TARGETARCH is set automatically by BuildKit to the build platform (amd64 or
+# arm64); both stages use the host arch, so the .deb and the runtime image match.
+
+ARG VERSION=1.0.0
+
+# --- stage 1: build the .deb from source ------------------------------------
+FROM golang:1.26-bookworm AS deb-builder
+ARG VERSION
+ARG TARGETARCH=arm64
+ENV VERSION=${VERSION}
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      dpkg-dev fakeroot file \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Dependencies first, so a source-only change does not re-download the module
+# graph. The server is its own Go module under server/.
+COPY server/go.mod server/go.sum ./server/
+RUN cd server && go mod download
+
+COPY server/ ./server/
+COPY pkg/    ./pkg/
+
+# Produces build/dist/task-timer-server_${VERSION}_${TARGETARCH}.deb (pure Go
+# cross-compile inside build-server-binary.sh, then dpkg-deb).
+RUN ./pkg/package-server-deb.sh "${TARGETARCH}"
+
+# --- stage 2: install the .deb and run --------------------------------------
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Glob the single .deb the builder produced - robust to the arch in its name.
+COPY --from=deb-builder /src/build/dist/task-timer-server_*.deb /tmp/server.deb
+
+# `apt-get install ./file.deb` (not `dpkg -i`) so the Depends: adduser is pulled
+# in and the postinst - which creates the service user and data dir - succeeds.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends /tmp/server.deb \
+ && rm -f /tmp/server.deb \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY pkg/docker-server-entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -1,0 +1,38 @@
+# Task Timer sync daemon.
+#
+# This is a *user* unit, not a system one: the daemon reads a per-user database
+# and a per-user API token, so there is nothing sensible for it to do as root.
+# The packages install it to /usr/lib/systemd/user/, and each user opts in:
+#
+#     systemctl --user enable --now task-timer-sync.service
+#
+# It carries no credentials. The daemon reads sync.env out of its own data
+# directory, which is what keeps tokens out of a unit file that lives under /usr
+# and is readable by every account on the machine.
+
+[Unit]
+Description=Task Timer sync daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/task-timer-sync
+
+# A polling loop: worth restarting if it dies, but not in a tight spin.
+Restart=on-failure
+RestartSec=30s
+
+# Modest hardening. Deliberately no ProtectHome or ReadWritePaths: the data
+# directory is relocatable with TASK_TIMER_DATA_DIR, and a sandbox that forbids
+# writing to wherever the user pointed it would turn a documented feature into a
+# permission error.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=default.target

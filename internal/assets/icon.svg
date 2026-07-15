@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="160" y1="80" x2="900" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4A54A6"/>
+      <stop offset="1" stop-color="#242A50"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="512" y1="180" x2="512" y2="980" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFA24B"/>
+      <stop offset="1" stop-color="#FF7A34"/>
+    </linearGradient>
+    <linearGradient id="face" x1="512" y1="300" x2="512" y2="880" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF1F8"/>
+    </linearGradient>
+  </defs>
+
+  <!-- rounded-square app background -->
+  <rect x="0" y="0" width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+
+  <!-- stopwatch crown / start button -->
+  <rect x="474" y="96" width="76" height="120" rx="30" ry="30" fill="url(#accent)"/>
+  <rect x="446" y="60" width="132" height="70" rx="34" ry="34" fill="url(#accent)"/>
+
+  <!-- progress track -->
+  <circle cx="512" cy="588" r="366" fill="none" stroke="#5A62A0" stroke-width="58"/>
+
+  <!-- progress arc accent (270 degrees, clockwise from 12 o'clock) -->
+  <path d="M 512 222 A 366 366 0 1 1 146 588"
+        fill="none" stroke="url(#accent)" stroke-width="58" stroke-linecap="round"/>
+
+  <!-- clock face -->
+  <circle cx="512" cy="588" r="284" fill="url(#face)"/>
+  <circle cx="512" cy="588" r="284" fill="none" stroke="#20243F" stroke-opacity="0.06" stroke-width="8"/>
+
+  <!-- tick marks at 12, 3, 6, 9 -->
+  <rect x="500" y="336" width="24" height="52" rx="12" fill="#C3C9DC"/>
+  <rect x="712" y="576" width="52" height="24" rx="12" fill="#C3C9DC"/>
+  <rect x="500" y="788" width="24" height="52" rx="12" fill="#C3C9DC"/>
+  <rect x="260" y="576" width="52" height="24" rx="12" fill="#C3C9DC"/>
+
+  <!-- hands -->
+  <path d="M 512 588 L 512 408" fill="none" stroke="#282E52" stroke-width="42" stroke-linecap="round"/>
+  <path d="M 512 588 L 664 500" fill="none" stroke="#FF7A34" stroke-width="42" stroke-linecap="round"/>
+  <circle cx="512" cy="588" r="30" fill="#282E52"/>
+  <circle cx="512" cy="588" r="12" fill="#F6F8FC"/>
+</svg>
