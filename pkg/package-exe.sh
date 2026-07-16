@@ -5,7 +5,7 @@
 # Usage: package-exe.sh [amd64|arm64]     (default: amd64)
 #
 # Scratch: build/staging/nsis/<arch>   (never /tmp)
-# Input:   build/bin/windows-<arch>/{task-timer.exe,task-timer-sync.exe}
+# Input:   build/bin/windows-<arch>/{task-timer.exe,task-timer-daemon.exe}
 #          build/icons/TaskTimer.ico
 # Output:  build/dist/task-timer-installer-<arch>.exe
 #

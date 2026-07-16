@@ -4,9 +4,9 @@
 # and a per-user API token, so there is nothing sensible for it to do as root.
 # The packages install it to /usr/lib/systemd/user/, and each user opts in:
 #
-#     systemctl --user enable --now task-timer-sync.service
+#     systemctl --user enable --now task-timer-daemon.service
 #
-# It carries no credentials. The daemon reads sync.env out of its own data
+# It carries no credentials. The daemon reads credentials.env out of its own data
 # directory, which is what keeps tokens out of a unit file that lives under /usr
 # and is readable by every account on the machine.
 
@@ -17,7 +17,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/task-timer-sync
+ExecStart=/usr/local/bin/task-timer-daemon
 
 # A polling loop: worth restarting if it dies, but not in a tight spin.
 Restart=on-failure

@@ -13,7 +13,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 )
 
 // connectTimeout bounds the whole browser round trip. The gateway's own flow
@@ -21,7 +21,7 @@ import (
 // not leave a spinner up for the rest of the day.
 const connectTimeout = 6 * time.Minute
 
-// Synchronize is the Synchronize button's entry point.
+// Push is the Push button's entry point.
 //
 // A sync that would just bounce off a 401 helps nobody, so before queueing
 // anything the app makes sure the machine is actually signed in to its backend.
@@ -29,27 +29,27 @@ const connectTimeout = 6 * time.Minute
 // credential exists, it offers sign-in first — enter the URL, click Log in — and
 // queues the sessions once that succeeds. Otherwise it queues straight away, so
 // a file- or token-only setup is untouched.
-func (a *App) Synchronize() {
+func (a *App) Push() {
 	if reg, ok := a.needsConnect(); ok {
-		a.connectDialog(reg, a.queueSync)
+		a.connectDialog(reg, a.queuePush)
 		return
 	}
-	a.queueSync()
+	a.queuePush()
 }
 
 // needsConnect returns the connectable provider the user should sign in to
-// before syncing, if any.
+// before pushing, if any.
 //
 // It offers sign-in when a connectable provider is enabled but has no token, or
 // when nothing at all is configured yet — the fresh-install case, where the
 // point is to get the user connected. A provider the user has deliberately left
 // disabled in favour of another backend is never forced on them.
-func (a *App) needsConnect() (tsync.Registration, bool) {
-	cfg, err := tsync.LoadConfig(tsync.ConfigPath())
+func (a *App) needsConnect() (reconcile.Registration, bool) {
+	cfg, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
 		// A broken config is the user's to fix by hand; do not paper over it with
 		// a sign-in prompt that would then save over it.
-		return tsync.Registration{}, false
+		return reconcile.Registration{}, false
 	}
 
 	enabled := map[string]bool{}
@@ -61,7 +61,7 @@ func (a *App) needsConnect() (tsync.Registration, bool) {
 		}
 	}
 
-	for _, reg := range tsync.Connectable() {
+	for _, reg := range reconcile.Connectable() {
 		if reg.HasToken != nil && reg.HasToken() {
 			continue
 		}
@@ -69,13 +69,13 @@ func (a *App) needsConnect() (tsync.Registration, bool) {
 			return reg, true
 		}
 	}
-	return tsync.Registration{}, false
+	return reconcile.Registration{}, false
 }
 
 // connectDialog asks for the backend URL and, on Log in, runs the sign-in. The
 // URL is pre-filled from the config when the provider has been pointed at one
 // already, so reconnecting is a single click.
-func (a *App) connectDialog(reg tsync.Registration, onConnected func()) {
+func (a *App) connectDialog(reg reconcile.Registration, onConnected func()) {
 	url := widget.NewEntry()
 	url.SetPlaceHolder("https://tasktimer.example.com")
 	if current := a.providerURL(reg); current != "" {
@@ -106,7 +106,7 @@ func (a *App) connectDialog(reg tsync.Registration, onConnected func()) {
 // browser and blocks until the user consents — then persists the URL, enables
 // the provider, and hands back to onConnected. A "waiting for the browser"
 // notice stands in until it finishes.
-func (a *App) runConnect(reg tsync.Registration, url string, onConnected func()) {
+func (a *App) runConnect(reg reconcile.Registration, url string, onConnected func()) {
 	waiting := dialog.NewCustomWithoutButtons("Connecting to "+reg.Title,
 		container.NewVBox(
 			widget.NewLabel("A browser window has opened for sign-in."),
@@ -118,7 +118,7 @@ func (a *App) runConnect(reg tsync.Registration, url string, onConnected func())
 		ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 		defer cancel()
 
-		id, err := tsync.Connect(ctx, reg.Name, url)
+		id, err := reconcile.Connect(ctx, reg.Name, url)
 		waiting.Hide()
 		if err != nil {
 			a.reportError("Connecting to "+reg.Title, err)
@@ -152,12 +152,12 @@ func (a *App) runConnect(reg tsync.Registration, url string, onConnected func())
 
 // saveConnection records a successful sign-in in the daemon's config: it writes
 // the URL into the provider's settings and switches the provider on, so the next
-// sync cycle actually reaches the backend the user just authorised.
+// reconcile cycle actually reaches the backend the user just authorised.
 //
 // Like the Settings page, it reloads before writing so keys the app does not
 // render — an inline token, a hand-added field — survive the round trip.
-func (a *App) saveConnection(reg tsync.Registration, url string) error {
-	cfg, err := tsync.LoadConfig(tsync.ConfigPath())
+func (a *App) saveConnection(reg reconcile.Registration, url string) error {
+	cfg, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
 		return err
 	}
@@ -170,9 +170,9 @@ func (a *App) saveConnection(reg tsync.Registration, url string) error {
 		}
 	}
 	if index < 0 {
-		cfg.Providers = append(cfg.Providers, tsync.ProviderConfig{
+		cfg.Providers = append(cfg.Providers, reconcile.ProviderConfig{
 			Name:     reg.Name,
-			Settings: tsync.DefaultSettings(reg.Name),
+			Settings: reconcile.DefaultSettings(reg.Name),
 		})
 		index = len(cfg.Providers) - 1
 	}
@@ -193,16 +193,16 @@ func (a *App) saveConnection(reg tsync.Registration, url string) error {
 	}
 
 	cfg.Providers[index].Enabled = true
-	return tsync.SaveConfig(tsync.ConfigPath(), cfg)
+	return reconcile.SaveConfig(reconcile.ConfigPath(), cfg)
 }
 
 // providerURL reads the backend URL a provider is currently pointed at, so the
 // Connect dialog can pre-fill it. It returns "" when none is set.
-func (a *App) providerURL(reg tsync.Registration) string {
+func (a *App) providerURL(reg reconcile.Registration) string {
 	if reg.URLField == "" {
 		return ""
 	}
-	cfg, err := tsync.LoadConfig(tsync.ConfigPath())
+	cfg, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
 		return ""
 	}

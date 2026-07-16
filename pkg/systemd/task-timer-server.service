@@ -1,9 +1,9 @@
 # Task Timer gateway.
 #
-# This is a SYSTEM unit, unlike task-timer-sync.service. The two are not the same
+# This is a SYSTEM unit, unlike task-timer-daemon.service. The two are not the same
 # kind of thing and it is worth being explicit about why:
 #
-#   task-timer-sync   runs as a person, reads that person's database, and syncs
+#   task-timer-daemon   runs as a person, reads that person's database, and syncs
 #                     their own work. There is nothing for it to do as root.
 #   task-timer-server runs as a service. It holds the Atlassian OAuth grants for
 #                     every user, listens on a port, and is nobody's login session.

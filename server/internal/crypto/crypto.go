@@ -3,7 +3,7 @@
 // authenticated encryption of the Jira tokens at rest.
 //
 // The token cipher is AES-256-GCM. The desktop client already generates its
-// PKCE challenge with crypto/sha256 and base64url (see internal/sync/providers/
+// PKCE challenge with crypto/sha256 and base64url (see internal/reconcile/providers/
 // gateway/connect.go), and the transforms here are the server side of the same
 // scheme.
 package crypto

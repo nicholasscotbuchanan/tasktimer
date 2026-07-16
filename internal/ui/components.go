@@ -23,7 +23,7 @@ import (
 //
 // Every column is given its minimum first, and only the surplus is shared out
 // by weight. Distributing purely by weight is not enough: a status pill reading
-// "Synchronized Complete" or a "Complete" button is a fixed lump of pixels that
+// "Pushed — Complete" or a "Complete" button is a fixed lump of pixels that
 // cannot ellipsise, so a column narrower than its content does not shrink — it
 // spills over the top of its neighbour.
 //
@@ -249,13 +249,13 @@ func pill(text string, fg, fill color.Color) fyne.CanvasObject {
 	return container.NewStack(bg, insetXY(label, 10, 5))
 }
 
-// statusPill colours a session's status. Anything the sync engine has pushed
-// upstream reads as success; work still in flight is neutral.
+// statusPill colours a session's status. Anything pushed upstream reads as
+// success; work still in flight is neutral.
 func statusPill(status string, done bool) fyne.CanvasObject {
 	switch {
 	case done:
 		return pill(status, colTextMuted, rgba(0x8494A9, 0x24))
-	case strings.HasPrefix(status, "Sync"):
+	case strings.HasPrefix(status, "Push"):
 		return pill(status, colAccent, rgba(0x5B9CFF, 0x2E))
 	case status == "In Progress":
 		return pill(status, colAccent, rgba(0x5B9CFF, 0x2E))

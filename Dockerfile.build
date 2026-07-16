@@ -95,7 +95,7 @@ CMD ["/bin/sh", "-c", "set -eu; \
   GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=gcc CXX=g++ \
     go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-arm64/task-timer ./cmd/task-timer; \
   GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=gcc CXX=g++ \
-    go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-arm64/task-timer-sync ./cmd/task-timer-sync; \
+    go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-arm64/task-timer-daemon ./cmd/task-timer-daemon; \
   for target in amd64:x86_64-w64-mingw32-gcc:x86_64-w64-mingw32-g++ \
                 arm64:aarch64-w64-mingw32-clang:aarch64-w64-mingw32-clang++; do \
     arch=${target%%:*}; rest=${target#*:}; cc=${rest%%:*}; cxx=${rest#*:}; \
@@ -106,6 +106,6 @@ CMD ["/bin/sh", "-c", "set -eu; \
         -o \"/out/windows-$arch/task-timer.exe\" ./cmd/task-timer; \
     GOOS=windows GOARCH=$arch CGO_ENABLED=1 CC=$cc CXX=$cxx \
       go build -trimpath -ldflags \"$LDFLAGS\" \
-        -o \"/out/windows-$arch/task-timer-sync.exe\" ./cmd/task-timer-sync; \
+        -o \"/out/windows-$arch/task-timer-daemon.exe\" ./cmd/task-timer-daemon; \
   done; \
   find /out -type f -exec ls -la {} +"]

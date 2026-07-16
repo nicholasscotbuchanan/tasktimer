@@ -3,7 +3,7 @@
 # Build the Debian package.
 #
 # Scratch: build/staging/deb   (never /tmp)
-# Input:   build/bin/linux-arm64/{task-timer,task-timer-sync}
+# Input:   build/bin/linux-arm64/{task-timer,task-timer-daemon}
 #          build/icons/png/icon_<N>.png
 # Output:  build/dist/task-timer_<version>_arm64.deb
 set -euo pipefail
@@ -78,18 +78,18 @@ if [ "$1" = "configure" ]; then
 Task Timer is installed.
 
   task-timer        the desktop app
-  task-timer-sync   the sync daemon (optional; does nothing until you enable a
-                    provider in the app's Settings page, or in sync.json)
+  task-timer-daemon   the sync daemon (optional; does nothing until you enable a
+                    provider in the app's Settings page, or in config.yaml)
 
 To run the sync daemon in the background, as your own user:
 
-  systemctl --user enable --now task-timer-sync.service
-  systemctl --user status task-timer-sync.service
+  systemctl --user enable --now task-timer-daemon.service
+  systemctl --user status task-timer-daemon.service
 
 Put any API token in the daemon's env file (it does not inherit your shell):
 
-  ~/.config/task-timer/sync.env      e.g.  TASK_TIMER_GATEWAY_TOKEN=...
-  chmod 600 ~/.config/task-timer/sync.env
+  ~/.config/task-timer/credentials.env      e.g.  TASK_TIMER_GATEWAY_TOKEN=...
+  chmod 600 ~/.config/task-timer/credentials.env
 
 EOM
 fi
@@ -107,7 +107,7 @@ set -e
 # copy is the most that can honestly be done; a user who enabled it for another
 # account disables it there themselves.
 if [ "$1" = "remove" ] && [ -n "${SUDO_USER:-}" ] && [ -d /run/systemd/system ]; then
-    runuser -u "$SUDO_USER" -- systemctl --user disable --now task-timer-sync.service >/dev/null 2>&1 || true
+    runuser -u "$SUDO_USER" -- systemctl --user disable --now task-timer-daemon.service >/dev/null 2>&1 || true
 fi
 
 exit 0

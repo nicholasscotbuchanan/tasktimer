@@ -34,7 +34,7 @@
 
 !define APP_NAME    "Task Timer"
 !define APP_EXE     "task-timer.exe"
-!define SYNC_EXE    "task-timer-sync.exe"
+!define SYNC_EXE    "task-timer-daemon.exe"
 !define PUBLISHER   "Task Timer"
 !define REG_UNINST  "Software\Microsoft\Windows\CurrentVersion\Uninstall\TaskTimer"
 !define REG_APP     "Software\TaskTimer"
@@ -173,7 +173,7 @@ SectionEnd
 LangString DESC_SecInstall     ${LANG_ENGLISH} \
   "The Task Timer desktop app and the sync daemon."
 LangString DESC_SecSyncAtLogin ${LANG_ENGLISH} \
-  "Start the sync daemon automatically at login. It does nothing until you enable a provider in Settings. Your API token goes in sync.env in the data directory."
+  "Start the sync daemon automatically at login. It does nothing until you enable a provider in Settings. Your API token goes in credentials.env in the data directory."
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecInstall}     $(DESC_SecInstall)

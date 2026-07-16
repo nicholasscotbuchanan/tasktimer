@@ -1,0 +1,42 @@
+# providers.yaml — the settings each backend exposes.
+#
+# This is the schema the Settings form and the starter config.yaml are built
+# from. It is data, not code: editing it changes the fields a provider offers,
+# and their defaults, without recompiling anything. A provider still supplies its
+# behaviour in Go, but what it can be *configured* with lives here.
+#
+# On first run a copy of this file is written to the data directory; edit that
+# copy. Each entry is a list of fields with:
+#   key          the setting's key in config.yaml
+#   label        the name shown in the Settings form
+#   hint         one-line help under the label
+#   kind         text | bool
+#   placeholder  greyed-out example text (text fields)
+#   default      value used to seed a fresh config
+
+gateway:
+  - key: base_url
+    label: Gateway URL
+    hint: The Task Timer Server this client reconciles through.
+    kind: text
+    placeholder: https://tasktimer.example.com
+    default: ""
+  - key: api_token_env
+    label: Token variable
+    hint: The variable holding the bearer token; Log in writes it.
+    kind: text
+    placeholder: TASK_TIMER_GATEWAY_TOKEN
+    default: TASK_TIMER_GATEWAY_TOKEN
+  - key: complete_remote_tasks
+    label: Completion
+    hint: Let Complete close the remote issue. Task Timer Server must also allow it.
+    kind: bool
+    default: false
+
+jsonfile:
+  - key: dir
+    label: Directory
+    hint: Where the provider reads tasks from and writes work logs to.
+    kind: text
+    placeholder: (defaults to a directory beside the database)
+    default: ""

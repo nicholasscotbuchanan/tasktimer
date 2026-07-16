@@ -13,7 +13,7 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 	"task-timer-app/internal/task"
 )
 
@@ -46,7 +46,7 @@ type settingsPage struct {
 
 // providerForm is the rendered settings block for one registered provider.
 type providerForm struct {
-	reg     tsync.Registration
+	reg     reconcile.Registration
 	enabled *widget.Check
 
 	// controls holds one widget per declared field, keyed by the field's JSON
@@ -61,7 +61,7 @@ func newSettingsPage(a *App) *settingsPage {
 	p.workingHours.SetPlaceHolder("8")
 
 	p.pollInterval = widget.NewEntry()
-	p.pollInterval.SetPlaceHolder(tsync.DefaultPollIntervalText)
+	p.pollInterval.SetPlaceHolder(reconcile.DefaultPollIntervalText)
 
 	save := iconButton("Save changes", iconCheck, true, p.save)
 	discard := iconButton("Discard", iconReset, false, p.refresh)
@@ -73,7 +73,7 @@ func newSettingsPage(a *App) *settingsPage {
 
 	cards := []fyne.CanvasObject{
 		card("Timekeeping", p.timekeepingForm()),
-		insetXY(card("Sync Daemon", p.syncForm()), 0, 14),
+		insetXY(card("Daemon", p.daemonForm()), 0, 14),
 	}
 
 	// One card per compiled-in provider, built from what the provider says about
@@ -100,7 +100,7 @@ func (p *settingsPage) buildProviderForms() []*providerForm {
 		return p.providers
 	}
 
-	for _, reg := range tsync.Descriptors() {
+	for _, reg := range reconcile.Descriptors() {
 		form := &providerForm{
 			reg:      reg,
 			enabled:  widget.NewCheck("Enabled", nil),
@@ -109,7 +109,7 @@ func (p *settingsPage) buildProviderForms() []*providerForm {
 
 		for _, field := range reg.Fields {
 			switch field.Kind {
-			case tsync.KindBool:
+			case reconcile.KindBool:
 				form.controls[field.Key] = widget.NewCheck("", nil)
 			default:
 				entry := widget.NewEntry()
@@ -135,10 +135,10 @@ func (p *settingsPage) timekeepingForm() fyne.CanvasObject {
 	)
 }
 
-func (p *settingsPage) syncForm() fyne.CanvasObject {
+func (p *settingsPage) daemonForm() fyne.CanvasObject {
 	return formGrid(
 		formRow("Poll interval",
-			"How often the daemon runs a sync cycle. A Go duration, e.g. 60s or 5m.",
+			"How often the daemon runs a reconcile cycle. A Go duration, e.g. 60s or 5m.",
 			p.pollInterval),
 	)
 }
@@ -172,7 +172,7 @@ func (p *settingsPage) providerForm(form *providerForm) fyne.CanvasObject {
 
 // connectButton runs the provider's sign-in against whatever URL its form
 // currently shows, falling back to the saved one. It reuses the same flow the
-// Synchronize button triggers.
+// Push button triggers.
 func (p *settingsPage) connectButton(form *providerForm) fyne.CanvasObject {
 	return iconButton("Log in", iconExternal, true, func() {
 		url := ""
@@ -193,7 +193,7 @@ func (p *settingsPage) connectButton(form *providerForm) fyne.CanvasObject {
 func (p *settingsPage) dataForm() fyne.CanvasObject {
 	return formGrid(
 		formRow("Database", "", pathValue(task.DBPath())),
-		formRow("Sync config", "", pathValue(tsync.ConfigPath())),
+		formRow("Config file", "", pathValue(reconcile.ConfigPath())),
 	)
 }
 
@@ -208,18 +208,18 @@ func (p *settingsPage) refresh() {
 	hours := p.app.fyne.Preferences().FloatWithFallback(prefWorkingDayHours, defaultWorkingHours)
 	p.workingHours.SetText(strconv.FormatFloat(hours, 'f', -1, 64))
 
-	cfg, err := tsync.LoadConfig(tsync.ConfigPath())
+	cfg, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
 		// A malformed config is the user's to fix by hand; showing the defaults
 		// as if it had loaded would invite them to save over it.
-		p.setStatus(fmt.Sprintf("Could not read the sync config: %v", err), colDanger)
+		p.setStatus(fmt.Sprintf("Could not read the config: %v", err), colDanger)
 		return
 	}
 
 	p.pollInterval.SetText(cfg.PollInterval)
 
 	// Index the file's provider blocks so each form can find its own.
-	blocks := make(map[string]tsync.ProviderConfig, len(cfg.Providers))
+	blocks := make(map[string]reconcile.ProviderConfig, len(cfg.Providers))
 	for _, provider := range cfg.Providers {
 		blocks[provider.Name] = provider
 	}
@@ -263,7 +263,7 @@ func (p *settingsPage) save() {
 
 	interval := p.pollInterval.Text
 	if interval == "" {
-		interval = tsync.DefaultPollIntervalText
+		interval = reconcile.DefaultPollIntervalText
 	}
 	if _, err := time.ParseDuration(interval); err != nil {
 		p.setStatus(fmt.Sprintf("Poll interval %q is not a duration, e.g. 60s.", interval), colDanger)
@@ -273,9 +273,9 @@ func (p *settingsPage) save() {
 	// Reload before writing so that anything this form does not render survives
 	// a save: an inline api_token, a hand-added key, or a provider that is in the
 	// file but not compiled into this build.
-	cfg, err := tsync.LoadConfig(tsync.ConfigPath())
+	cfg, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
-		p.app.reportError("Reading the sync config", err)
+		p.app.reportError("Reading the config", err)
 		return
 	}
 	cfg.PollInterval = interval
@@ -293,7 +293,7 @@ func (p *settingsPage) save() {
 		// gained a backend since the config was written — is appended rather
 		// than ignored.
 		if index < 0 {
-			cfg.Providers = append(cfg.Providers, tsync.ProviderConfig{Name: form.reg.Name})
+			cfg.Providers = append(cfg.Providers, reconcile.ProviderConfig{Name: form.reg.Name})
 			index = len(cfg.Providers) - 1
 		}
 
@@ -329,8 +329,8 @@ func (p *settingsPage) save() {
 		cfg.Providers[index].Settings = encoded
 	}
 
-	if err := tsync.SaveConfig(tsync.ConfigPath(), cfg); err != nil {
-		p.app.reportError("Saving the sync config", err)
+	if err := reconcile.SaveConfig(reconcile.ConfigPath(), cfg); err != nil {
+		p.app.reportError("Saving the config", err)
 		return
 	}
 
@@ -340,7 +340,7 @@ func (p *settingsPage) save() {
 	p.setStatus("Saved. The daemon picks the config up on its next cycle.", colSuccess)
 
 	dialog.ShowInformation("Settings saved",
-		"The sync daemon re-reads its config on the next poll; the working day applies immediately.",
+		"The daemon re-reads its config on the next poll; the working day applies immediately.",
 		p.app.window)
 }
 

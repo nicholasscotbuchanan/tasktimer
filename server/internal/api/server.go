@@ -1,7 +1,7 @@
 // Package api is the gateway's HTTP surface.
 //
 // The routes here are the contract the desktop client already speaks (see
-// internal/sync/providers/gateway in the client module). There is one auth flow
+// internal/reconcile/providers/gateway in the client module). There is one auth flow
 // that registers, authenticates, and connects Jira all at once, and three
 // working endpoints behind a bearer key: list tasks, complete a task, push a
 // work log.

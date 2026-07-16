@@ -3,7 +3,7 @@
 # Assemble TaskTimer.app.
 #
 # Scratch:  build/staging/macapp
-# Binaries: build/bin/darwin-<arch>/{TaskTimer,TaskTimer-Sync}
+# Binaries: build/bin/darwin-<arch>/{TaskTimer,TaskTimer-Daemon}
 # Output:   build/dist/TaskTimer.app
 #
 # Nothing is ever written to the repo root or to /tmp.
@@ -46,7 +46,7 @@ LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${GIT_COMMIT}"
 GOOS=darwin GOARCH="$GOARCH" go build -trimpath -ldflags "$LDFLAGS" \
   -o "${BIN_DIR}/${APP_NAME}" ./cmd/task-timer
 GOOS=darwin GOARCH="$GOARCH" go build -trimpath -ldflags "$LDFLAGS" \
-  -o "${BIN_DIR}/${APP_NAME}-Sync" ./cmd/task-timer-sync
+  -o "${BIN_DIR}/${APP_NAME}-Sync" ./cmd/task-timer-daemon
 
 # --- icons ------------------------------------------------------------------
 if [ ! -f "$ICNS" ]; then
@@ -82,14 +82,14 @@ fi
 
 # --- sync daemon login agent ------------------------------------------------
 # The bundle carries the daemon binary, so it must also carry the means to run
-# it. Shipping TaskTimer-Sync with no way to start it is how the backend ends up
-# installed but dead. sync-agent.sh resolves the daemon's path from its own
+# it. Shipping TaskTimer-Daemon with no way to start it is how the backend ends up
+# installed but dead. daemon-agent.sh resolves the daemon's path from its own
 # location and installs the LaunchAgent; the template alongside it is not
 # loadable on its own.
-cp "pkg/launchd/com.tasktimer.sync.plist" "${RESOURCES_DIR}/com.tasktimer.sync.plist"
-cp "pkg/launchd/sync-agent.sh"            "${RESOURCES_DIR}/sync-agent.sh"
-chmod 644 "${RESOURCES_DIR}/com.tasktimer.sync.plist"
-chmod 755 "${RESOURCES_DIR}/sync-agent.sh"
+cp "pkg/launchd/com.tasktimer.daemon.plist" "${RESOURCES_DIR}/com.tasktimer.daemon.plist"
+cp "pkg/launchd/daemon-agent.sh"            "${RESOURCES_DIR}/daemon-agent.sh"
+chmod 644 "${RESOURCES_DIR}/com.tasktimer.daemon.plist"
+chmod 755 "${RESOURCES_DIR}/daemon-agent.sh"
 
 # No 'var' symlink: the app resolves its data directory at runtime from
 # TASK_TIMER_DATA_DIR or the OS user-config dir, so the bundle stays read-only.

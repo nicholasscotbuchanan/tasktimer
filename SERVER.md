@@ -106,7 +106,7 @@ framework.
 
 There are **two OAuth legs** that meet in the middle at the server. This is the
 part worth understanding before changing anything in `api/server.go` or the
-client's `internal/sync/providers/gateway/connect.go`.
+client's `internal/reconcile/providers/gateway/connect.go`.
 
 **Leg 1 — client ⇄ Task Timer Server (native-app OAuth, RFC 8252 + PKCE).**
 The client proves possession of a code verifier to the server and walks away with
@@ -425,6 +425,6 @@ Go toolchain — none of the client's C-compiler and X11/GL prerequisites apply 
 Cross-compiling is just `GOOS`/`GOARCH`.
 
 When changing the HTTP surface, remember the other half of the contract lives in
-Task Timer at `internal/sync/providers/gateway/` in the root module — the two
+Task Timer at `internal/reconcile/providers/gateway/` in the root module — the two
 evolve together but build separately. See [DEVELOPER.md](DEVELOPER.md) for that
 side.

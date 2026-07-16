@@ -14,7 +14,7 @@ import (
 )
 
 // Store is the SQLite-backed persistence layer. It is safe for concurrent use:
-// the desktop app and the sync daemon open the same file at the same time.
+// the desktop app and the daemon open the same file at the same time.
 type Store struct {
 	db *sql.DB
 }
@@ -188,6 +188,20 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("adding column %s: %w", col.name, err)
 		}
 	}
+
+	// Older databases stored the push lifecycle under different, "sync"-worded
+	// status values. Bring existing rows onto the current wording so the table
+	// never shows two vocabularies at once. Idempotent: once migrated, the WHERE
+	// clauses match nothing.
+	for _, r := range []struct{ from, to string }{
+		{"Pushing", string(StatusPushing)},
+		{"Synchronized Progress", string(StatusPushed)},
+		{"Pushed — Complete", string(StatusPushedComplete)},
+	} {
+		if _, err := s.db.Exec(`UPDATE tasks SET task_status = ? WHERE task_status = ?`, r.to, r.from); err != nil {
+			return fmt.Errorf("migrating status %q: %w", r.from, err)
+		}
+	}
 	return nil
 }
 
@@ -229,7 +243,7 @@ func scanTasks(rows *sql.Rows) ([]Task, error) {
 		t.AssignedBy = assignedBy.String
 		t.Source = source.String
 		t.Status = Status(status.String)
-		t.SyncSignature = signature.String
+		t.PushSignature = signature.String
 		t.Username = username.String
 		t.ForeignKey = fKey.String
 		t.ForeignURL = fURL.String
@@ -329,7 +343,7 @@ func (s *Store) OpenNames() ([]string, error) {
 }
 
 // Save records a completed work session. When the task name matches a known
-// remote task, the provider's key and URL are attached so the sync daemon can
+// remote task, the provider's key and URL are attached so the daemon can
 // push the session upstream.
 func (s *Store) Save(t Task) error {
 	if t.Source == "" {
@@ -514,27 +528,27 @@ func (s *Store) RemoteByDisplayName(name string) (*Remote, error) {
 	return nil, nil
 }
 
-// syncEligible is the shape of a session that could be pushed: finished, linked
+// pushEligible is the shape of a session that could be pushed: finished, linked
 // to a remote task, and not already carrying a work-log id from a previous push.
 //
 // It is deliberately separate from the sync_requested check below. Eligibility is
 // a property of the session; being *requested* is a decision the user made. The
-// Synchronize button turns the first into the second.
-const syncEligible = `
+// Push button turns the first into the second.
+const pushEligible = `
 	  AND foreign_key IS NOT NULL AND foreign_key <> ''
 	  AND (timer_sync_signature IS NULL OR timer_sync_signature = '')
 	  AND end_time IS NOT NULL AND end_time <> ''`
 
-// RequestSync marks every eligible session as ready to synchronise and reports
-// how many were marked. This is what the Synchronize button calls.
+// RequestPush marks every eligible session as ready to reconcile and reports
+// how many were marked. This is what the Push button calls.
 //
-// It does not push anything. The sync thread scans for these rows on its own
+// It does not push anything. The reconcile loop scans for these rows on its own
 // schedule and does the work; this only tells it there is work to find.
-func (s *Store) RequestSync() (int, error) {
+func (s *Store) RequestPush() (int, error) {
 	res, err := s.db.Exec(`UPDATE tasks SET sync_requested = 1
-		WHERE sync_requested = 0` + syncEligible)
+		WHERE sync_requested = 0` + pushEligible)
 	if err != nil {
-		return 0, fmt.Errorf("marking sessions for sync: %w", err)
+		return 0, fmt.Errorf("marking sessions for push: %w", err)
 	}
 
 	// Completions are a separate signal from work logs: a task the user finished
@@ -544,8 +558,8 @@ func (s *Store) RequestSync() (int, error) {
 		WHERE sync_requested = 0
 		  AND foreign_key IS NOT NULL AND foreign_key <> ''
 		  AND comment = ?
-		  AND task_status <> ?`, CommentCompleted, string(StatusSyncedComplete)); err != nil {
-		return 0, fmt.Errorf("marking completions for sync: %w", err)
+		  AND task_status <> ?`, CommentCompleted, string(StatusPushedComplete)); err != nil {
+		return 0, fmt.Errorf("marking completions for push: %w", err)
 	}
 
 	n, err := res.RowsAffected()
@@ -555,20 +569,20 @@ func (s *Store) RequestSync() (int, error) {
 	return int(n), nil
 }
 
-// PendingPush returns sessions the user has asked to synchronise: eligible
-// sessions (see syncEligible) that have been marked by RequestSync.
+// PendingPush returns sessions the user has asked to reconcile: eligible
+// sessions (see pushEligible) that have been marked by RequestPush.
 //
-// The empty SyncSignature check is what makes the push idempotent — a daemon
+// The empty PushSignature check is what makes the push idempotent — a daemon
 // that crashes after pushing but before marking will re-push, so providers are
 // expected to tolerate that, but a daemon that restarts cleanly will not.
 //
-// The sync_requested clause is what makes synchronisation explicit. Without it
+// The sync_requested clause is what makes reconciliation explicit. Without it
 // the thread would push a session the moment the timer stopped; with it, nothing
-// leaves this machine until the user presses Synchronize.
+// leaves this machine until the user presses Push.
 func (s *Store) PendingPush(provider string) ([]Task, error) {
 	rows, err := s.db.Query(`SELECT `+taskColumns+` FROM tasks
 		WHERE task_source = ?
-		  AND sync_requested = 1`+syncEligible+`
+		  AND sync_requested = 1`+pushEligible+`
 		ORDER BY id ASC`, provider)
 	if err != nil {
 		return nil, fmt.Errorf("querying pending pushes for %s: %w", provider, err)
@@ -588,7 +602,7 @@ func (s *Store) MarkPushed(id int, signature string, status Status) error {
 	return nil
 }
 
-// SetStatus updates the sync status of a session.
+// SetStatus updates the push status of a session.
 func (s *Store) SetStatus(id int, status Status) error {
 	if _, err := s.db.Exec(`UPDATE tasks SET task_status = ? WHERE id = ?`, string(status), id); err != nil {
 		return fmt.Errorf("setting status on task %d: %w", id, err)
@@ -597,7 +611,7 @@ func (s *Store) SetStatus(id int, status Status) error {
 }
 
 // PendingCompletions returns remote-linked tasks the user has marked completed
-// locally, has asked to synchronise, and whose provider has not yet been told.
+// locally, has asked to reconcile, and whose provider has not yet been told.
 func (s *Store) PendingCompletions(provider string) ([]Task, error) {
 	rows, err := s.db.Query(`SELECT `+taskColumns+` FROM tasks
 		WHERE task_source = ?
@@ -606,7 +620,7 @@ func (s *Store) PendingCompletions(provider string) ([]Task, error) {
 		  AND comment = ?
 		  AND task_status <> ?
 		GROUP BY foreign_key
-		ORDER BY id ASC`, provider, CommentCompleted, string(StatusSyncedComplete))
+		ORDER BY id ASC`, provider, CommentCompleted, string(StatusPushedComplete))
 	if err != nil {
 		return nil, fmt.Errorf("querying pending completions for %s: %w", provider, err)
 	}
@@ -614,13 +628,13 @@ func (s *Store) PendingCompletions(provider string) ([]Task, error) {
 	return scanTasks(rows)
 }
 
-// MarkCompletionSynced records that the provider has been told the task is done.
-func (s *Store) MarkCompletionSynced(provider, foreignKey string) error {
+// MarkCompletionPushed records that the provider has been told the task is done.
+func (s *Store) MarkCompletionPushed(provider, foreignKey string) error {
 	_, err := s.db.Exec(`UPDATE tasks SET task_status = ?
 		WHERE task_source = ? AND foreign_key = ? AND comment = ?`,
-		string(StatusSyncedComplete), provider, foreignKey, CommentCompleted)
+		string(StatusPushedComplete), provider, foreignKey, CommentCompleted)
 	if err != nil {
-		return fmt.Errorf("marking completion synced for %s: %w", foreignKey, err)
+		return fmt.Errorf("marking completion pushed for %s: %w", foreignKey, err)
 	}
 	return nil
 }
@@ -634,7 +648,7 @@ func (s *Store) LastPull(provider string) (time.Time, error) {
 		return time.Time{}, nil
 	}
 	if err != nil {
-		return time.Time{}, fmt.Errorf("reading sync cursor for %s: %w", provider, err)
+		return time.Time{}, fmt.Errorf("reading pull cursor for %s: %w", provider, err)
 	}
 	return parseTime(v.String), nil
 }
@@ -645,7 +659,7 @@ func (s *Store) SetLastPull(provider string, at time.Time) error {
 		ON CONFLICT(provider) DO UPDATE SET last_pull = excluded.last_pull`,
 		provider, at.Format(time.RFC3339))
 	if err != nil {
-		return fmt.Errorf("writing sync cursor for %s: %w", provider, err)
+		return fmt.Errorf("writing pull cursor for %s: %w", provider, err)
 	}
 	return nil
 }

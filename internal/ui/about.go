@@ -8,7 +8,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 	"task-timer-app/internal/task"
 )
 
@@ -69,7 +69,7 @@ func (p *aboutPage) locations() fyne.CanvasObject {
 			"Override it with TASK_TIMER_DATA_DIR.",
 			pathValue(task.DataDir())),
 		formRow("Database", "", pathValue(task.DBPath())),
-		formRow("Sync config", "", pathValue(tsync.ConfigPath())),
+		formRow("Config file", "", pathValue(reconcile.ConfigPath())),
 	)
 }
 

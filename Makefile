@@ -41,14 +41,14 @@ endif
 ifeq ($(UNAME),Darwin)
 HOST_OS           := darwin
 GUI_BIN           := TaskTimer
-SYNC_BIN          := TaskTimer-Sync
+DAEMON_BIN          := TaskTimer-Daemon
 MAC_TARGETS       := mac-app
 DMG_TARGET        := dmg
 SERVER_MAC_TARGET := mac-server-app
 else
 HOST_OS           := linux
 GUI_BIN           := task-timer
-SYNC_BIN          := task-timer-sync
+DAEMON_BIN          := task-timer-daemon
 MAC_TARGETS       :=
 DMG_TARGET        :=
 SERVER_MAC_TARGET :=
@@ -102,9 +102,9 @@ build: dirs
 	@echo ">> building host binaries into $(HOST_BIN_DIR)"
 	@mkdir -p $(HOST_BIN_DIR)
 	go build $(GOFLAGS_BUILD) -o $(HOST_BIN_DIR)/$(GUI_BIN) ./cmd/task-timer
-	go build $(GOFLAGS_BUILD) -o $(HOST_BIN_DIR)/$(SYNC_BIN) ./cmd/task-timer-sync
+	go build $(GOFLAGS_BUILD) -o $(HOST_BIN_DIR)/$(DAEMON_BIN) ./cmd/task-timer-daemon
 	@echo ">> $(HOST_BIN_DIR)/$(GUI_BIN)"
-	@echo ">> $(HOST_BIN_DIR)/$(SYNC_BIN)"
+	@echo ">> $(HOST_BIN_DIR)/$(DAEMON_BIN)"
 
 ## icons: generate build/icons/{TaskTimer.icns,TaskTimer.ico,png/icon_<N>.png}
 icons: dirs
@@ -144,7 +144,7 @@ docker-build: dirs
 	@test -f $(BIN_DIR)/linux-arm64/task-timer || { echo "missing $(BIN_DIR)/linux-arm64/task-timer" >&2; exit 1; }
 	@for a in $(WIN_ARCHES); do \
 		test -f $(BIN_DIR)/windows-$$a/task-timer.exe || { echo "missing $(BIN_DIR)/windows-$$a/task-timer.exe" >&2; exit 1; }; \
-		test -f $(BIN_DIR)/windows-$$a/task-timer-sync.exe || { echo "missing $(BIN_DIR)/windows-$$a/task-timer-sync.exe" >&2; exit 1; }; \
+		test -f $(BIN_DIR)/windows-$$a/task-timer-daemon.exe || { echo "missing $(BIN_DIR)/windows-$$a/task-timer-daemon.exe" >&2; exit 1; }; \
 	done
 
 ## mac-app: assemble build/dist/TaskTimer.app (macOS host only)

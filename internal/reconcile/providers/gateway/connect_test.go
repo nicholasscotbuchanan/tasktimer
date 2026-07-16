@@ -5,14 +5,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 )
 
 // TestRegisteredAsConnectable is the wiring the desktop app relies on: the app
 // offers a Connect flow only for providers whose registration carries one, and
 // pre-fills the URL from the field the registration names.
 func TestRegisteredAsConnectable(t *testing.T) {
-	reg, ok := tsync.Describe(ProviderName)
+	reg, ok := reconcile.Describe(ProviderName)
 	if !ok {
 		t.Fatalf("provider %q is not registered", ProviderName)
 	}
@@ -39,19 +39,19 @@ func TestHasTokenFromEnvironment(t *testing.T) {
 }
 
 // TestHasTokenFromEnvFile: with nothing in the process environment, a token in
-// the daemon's sync.env must still count as connected — that is where the
+// the daemon's credentials.env must still count as connected — that is where the
 // Connect flow writes it.
 func TestHasTokenFromEnvFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("TASK_TIMER_DATA_DIR", dir)
 
-	if err := os.WriteFile(filepath.Join(dir, "sync.env"),
+	if err := os.WriteFile(filepath.Join(dir, reconcile.EnvFileName),
 		[]byte(defaultTokenEnv+"=tt_from_file\n"), 0o600); err != nil {
-		t.Fatalf("seeding sync.env: %v", err)
+		t.Fatalf("seeding %s: %v", reconcile.EnvFileName, err)
 	}
 
 	if !hasToken() {
-		t.Error("a token in sync.env was not detected")
+		t.Errorf("a token in %s was not detected", reconcile.EnvFileName)
 	}
 }
 

@@ -1,5 +1,5 @@
 // Package task holds the domain model and the SQLite store shared by the
-// desktop app and the sync daemon. Both binaries depend on this package so the
+// desktop app and the daemon. Both binaries depend on this package so the
 // schema is defined exactly once.
 package task
 
@@ -11,14 +11,14 @@ import (
 type Status string
 
 const (
-	// StatusLogged is a completed local session that has not been synced.
+	// StatusLogged is a completed local session that has not been pushed upstream.
 	StatusLogged Status = "Work Logged"
-	// StatusSyncing marks a session currently being pushed to a provider.
-	StatusSyncing Status = "Syncing"
-	// StatusSyncedProgress is a session pushed upstream whose task is ongoing.
-	StatusSyncedProgress Status = "Synchronized Progress"
-	// StatusSyncedComplete is a session pushed upstream whose task is done.
-	StatusSyncedComplete Status = "Synchronized Complete"
+	// StatusPushing marks a session currently being pushed to a provider.
+	StatusPushing Status = "Pushing"
+	// StatusPushed is a session pushed upstream whose task is ongoing.
+	StatusPushed Status = "Pushed"
+	// StatusPushedComplete is a session pushed upstream whose task is done.
+	StatusPushedComplete Status = "Pushed — Complete"
 	// StatusInProgress is a session whose timer is still running.
 	StatusInProgress Status = "In Progress"
 )
@@ -50,10 +50,11 @@ type Task struct {
 	ForeignKey string
 	// ForeignURL is a human-openable link to the task in the provider.
 	ForeignURL string
-	// SyncSignature is the provider's identifier for the pushed work log. It is
-	// empty until the session has been successfully synced, and is what makes
-	// pushing idempotent across daemon restarts.
-	SyncSignature string
+	// PushSignature is the provider's identifier for the pushed work log. It is
+	// empty until the session has been successfully pushed, and is what makes
+	// pushing idempotent across daemon restarts. (It maps to the on-disk column
+	// timer_sync_signature, kept under that name for database compatibility.)
+	PushSignature string
 	Comment       string
 	Instance      int
 }
@@ -64,7 +65,7 @@ func (t Task) Completed() bool {
 }
 
 // Remote is a task that lives in an external task tracker. Remote tasks
-// are pulled by the sync engine and offered to the user as timer targets; they
+// are pulled by the reconcile engine and offered to the user as timer targets; they
 // are not themselves work sessions.
 type Remote struct {
 	// Provider is the registered name of the provider that supplied the task.

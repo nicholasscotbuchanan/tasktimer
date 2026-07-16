@@ -19,11 +19,11 @@ const (
 	filterAll       = "All Tasks"
 	filterOpen      = "Open"
 	filterCompleted = "Completed"
-	filterSynced    = "Synced"
+	filterPushed    = "Pushed"
 	filterToday     = "Today"
 )
 
-var filterOptions = []string{filterAll, filterOpen, filterCompleted, filterSynced, filterToday}
+var filterOptions = []string{filterAll, filterOpen, filterCompleted, filterPushed, filterToday}
 
 // dashboardPage is the Overview: the running timer, today's totals, and the
 // session table.
@@ -87,9 +87,9 @@ func (p *dashboardPage) buildTimer() {
 	p.timerText.TextStyle.Bold = true
 
 	p.taskEntry = widget.NewSelectEntry(nil)
-	p.taskEntry.SetPlaceHolder("Enter a task name, or pick a synced task")
+	p.taskEntry.SetPlaceHolder("Enter a task name, or pick one from your tracker")
 	p.taskEntry.OnChanged = func(text string) {
-		p.syncButtons()
+		p.refreshButtons()
 	}
 
 	p.startBtn = iconButton("Start", iconPlay, true, p.toggle)
@@ -102,7 +102,7 @@ func (p *dashboardPage) buildTimer() {
 		p.app.OpenRemote(p.taskName())
 	})
 
-	p.syncButtons()
+	p.refreshButtons()
 }
 
 func (p *dashboardPage) timerContent() fyne.CanvasObject {
@@ -119,8 +119,8 @@ func (p *dashboardPage) timerContent() fyne.CanvasObject {
 	)
 }
 
-// syncButtons puts the controls into the state the timer is actually in.
-func (p *dashboardPage) syncButtons() {
+// refreshButtons puts the controls into the state the timer is actually in.
+func (p *dashboardPage) refreshButtons() {
 	running := p.app.running
 	named := strings.TrimSpace(p.taskName()) != ""
 
@@ -178,17 +178,17 @@ func (p *dashboardPage) setTaskName(name string) {
 
 // timerStarted, timerStopped and timerReset are the App's hooks into the card.
 func (p *dashboardPage) timerStarted() {
-	p.syncButtons()
+	p.refreshButtons()
 	p.refresh()
 }
 
 func (p *dashboardPage) timerStopped() {
-	p.syncButtons()
+	p.refreshButtons()
 }
 
 func (p *dashboardPage) timerReset() {
 	p.showElapsed(0)
-	p.syncButtons()
+	p.refreshButtons()
 	p.refresh()
 }
 
@@ -270,7 +270,7 @@ func (p *dashboardPage) toolbar() fyne.CanvasObject {
 	searchBox := sized(searchField(p.search), 280, 36)
 
 	refresh := iconButton("Refresh", iconRefresh, false, p.app.reload)
-	sync := iconButton("Synchronize", iconCheck, true, p.app.Synchronize)
+	sync := iconButton("Push", iconCheck, true, p.app.Push)
 
 	return container.NewBorder(nil, nil,
 		container.NewHBox(filterBox, searchBox),
@@ -327,8 +327,8 @@ func matchesFilter(t task.Task, filter string) bool {
 		return !t.Completed()
 	case filterCompleted:
 		return t.Completed()
-	case filterSynced:
-		return t.SyncSignature != ""
+	case filterPushed:
+		return t.PushSignature != ""
 	case filterToday:
 		return sameDay(t.Start, time.Now())
 	default: // filterAll, and an empty selection at startup

@@ -3,7 +3,7 @@
 # Build the RPM package.
 #
 # Scratch: build/staging/rpm   (rpmbuild tree lives here, never /tmp)
-# Input:   build/bin/linux-arm64/{task-timer,task-timer-sync}
+# Input:   build/bin/linux-arm64/{task-timer,task-timer-daemon}
 #          build/icons/png/icon_<N>.png
 # Output:  build/dist/task-timer-<version>-1.aarch64.rpm
 set -euo pipefail
@@ -95,7 +95,7 @@ BuildArch: ${PKG_ARCH}
 
 %description
 A cross-platform task timer with GUI and synchronization support.
-Ships the task-timer GUI and the task-timer-sync headless sync daemon.
+Ships the task-timer GUI and the task-timer-daemon headless sync daemon.
 
 %install
 rm -rf %{buildroot}
@@ -114,17 +114,17 @@ cat <<'EOM'
 Task Timer is installed.
 
   task-timer        the desktop app
-  task-timer-sync   the sync daemon (optional; does nothing until you enable a
-                    provider in the app's Settings page, or in sync.json)
+  task-timer-daemon   the sync daemon (optional; does nothing until you enable a
+                    provider in the app's Settings page, or in config.yaml)
 
 To run the sync daemon in the background, as your own user:
 
-  systemctl --user enable --now task-timer-sync.service
+  systemctl --user enable --now task-timer-daemon.service
 
 Put any API token in the daemon's env file (it does not inherit your shell):
 
-  ~/.config/task-timer/sync.env      e.g.  TASK_TIMER_GATEWAY_TOKEN=...
-  chmod 600 ~/.config/task-timer/sync.env
+  ~/.config/task-timer/credentials.env      e.g.  TASK_TIMER_GATEWAY_TOKEN=...
+  chmod 600 ~/.config/task-timer/credentials.env
 
 EOM
 

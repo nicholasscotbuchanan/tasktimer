@@ -1,4 +1,4 @@
-// Package sync synchronises locally timed work sessions with external task
+// Package reconcile keeps locally timed work sessions in step with external task
 // repositories reached through the backend.
 //
 // A backend is anything that satisfies Provider. Providers register themselves
@@ -6,16 +6,26 @@
 // whichever ones the config file enables. Adding a new backend — GitHub Issues,
 // Linear, Asana — means writing one file that implements Provider and calling
 // Register; nothing in the engine, the store, or the app changes.
-package sync
+//
+// A provider's *settings schema* — the fields it exposes, their labels and
+// defaults — is not compiled in. It lives in providers.yaml (seeded from the
+// embedded copy on first run) and is loaded at runtime, so what a backend can be
+// configured with is data a person can edit, not Go source.
+package reconcile
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"task-timer-app/internal/task"
 )
@@ -39,7 +49,7 @@ type WorkLog struct {
 	Author string
 }
 
-// Provider is a synchronisation backend: something that can supply tasks and
+// Provider is a reconciliation backend: something that can supply tasks and
 // accept the time spent on them.
 //
 // Pull and Push are independent capabilities. A provider may implement only
@@ -51,7 +61,7 @@ type Provider interface {
 	Name() string
 
 	// Pull returns tasks assigned to the user that changed at or after `since`.
-	// A zero `since` means a full sync. Providers should return tasks in any
+	// A zero `since` means a full pull. Providers should return tasks in any
 	// order; the engine does not depend on it.
 	Pull(ctx context.Context, since time.Time) ([]task.Remote, error)
 
@@ -119,8 +129,11 @@ type Registration struct {
 	Summary string
 	// New builds the provider from its config block.
 	New Factory
-	// Fields declares the provider's settings. A provider with no configurable
-	// settings may leave this empty.
+	// Fields declares the provider's settings. Providers no longer set this
+	// themselves: it is populated from providers.yaml when a registration is
+	// handed out by Describe/Descriptors, so the settings schema is data on disk
+	// rather than Go source. A provider with no entry in providers.yaml simply
+	// has no configurable settings.
 	Fields []Field
 	// URLField names the settings key that holds the backend's base URL, when it
 	// has one. The app uses it to pre-fill and persist the URL from the Connect
@@ -145,6 +158,118 @@ var (
 	registry   = map[string]Registration{}
 )
 
+// SchemaFileName is the provider settings schema, in the data directory beside
+// config.yaml.
+const SchemaFileName = "providers.yaml"
+
+// seedSchema is the built-in schema, written to the data directory on first run
+// so there is always a concrete, editable file to point people at.
+//
+//go:embed providers.yaml
+var seedSchema []byte
+
+var (
+	schemaOnce   sync.Once
+	schemaFields map[string][]Field
+)
+
+// SchemaPath returns the location of the provider schema file.
+func SchemaPath() string {
+	return filepath.Join(task.DataDir(), SchemaFileName)
+}
+
+// fieldYAML is one field as written in providers.yaml. Kind is a word there
+// ("text"/"bool") rather than the internal enum, so the file reads for humans.
+type fieldYAML struct {
+	Key         string `yaml:"key"`
+	Label       string `yaml:"label"`
+	Hint        string `yaml:"hint"`
+	Kind        string `yaml:"kind"`
+	Placeholder string `yaml:"placeholder"`
+	Default     any    `yaml:"default"`
+}
+
+// fieldsFor returns the settings schema declared for a provider in providers.yaml,
+// loading the file once. A missing or unreadable file falls back to the embedded
+// seed, so the app is always configurable even if the on-disk copy is deleted.
+func fieldsFor(name string) []Field {
+	schemaOnce.Do(loadSchema)
+	return schemaFields[name]
+}
+
+// loadSchema is read-only: it never writes. It reads the on-disk providers.yaml
+// if present, otherwise parses the embedded seed. The editable on-disk copy is
+// created separately by WriteSchemaSeed at startup, so nothing on a read path
+// (Descriptors, called all over the UI) has a filesystem side effect.
+func loadSchema() {
+	schemaFields = map[string][]Field{}
+
+	data := seedSchema
+	if onDisk, err := os.ReadFile(SchemaPath()); err == nil {
+		data = onDisk
+	}
+
+	var raw map[string][]fieldYAML
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		// A broken on-disk file should not blank the whole UI; fall back to the seed.
+		if err := yaml.Unmarshal(seedSchema, &raw); err != nil {
+			return
+		}
+	}
+
+	for name, fields := range raw {
+		out := make([]Field, 0, len(fields))
+		for _, f := range fields {
+			out = append(out, f.toField())
+		}
+		schemaFields[name] = out
+	}
+}
+
+// WriteSchemaSeed writes the embedded providers.yaml into the data directory if
+// no copy is there yet, so a user has a concrete file to edit. It is called once
+// at startup by each binary; an existing file — including one the user has
+// edited — is never overwritten.
+func WriteSchemaSeed() error {
+	path := SchemaPath()
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("creating data directory: %w", err)
+	}
+	if err := os.WriteFile(path, seedSchema, 0o644); err != nil {
+		return fmt.Errorf("writing %s: %w", path, err)
+	}
+	return nil
+}
+
+// toField converts a YAML field into the internal Field, mapping the kind word
+// onto the enum and coercing the default to the type the kind implies.
+func (f fieldYAML) toField() Field {
+	kind := KindText
+	if f.Kind == "bool" {
+		kind = KindBool
+	}
+	var def any
+	switch kind {
+	case KindBool:
+		b, _ := f.Default.(bool)
+		def = b
+	default:
+		s, _ := f.Default.(string)
+		def = s
+	}
+	return Field{
+		Key:         f.Key,
+		Label:       f.Label,
+		Hint:        f.Hint,
+		Kind:        kind,
+		Placeholder: f.Placeholder,
+		Default:     def,
+	}
+}
+
 // Register makes a provider available to the engine and to the app's settings
 // screen. Providers call this from an init function; the binaries blank-import
 // the provider packages they want compiled in. Registering the same name twice
@@ -154,13 +279,13 @@ func Register(r Registration) {
 	defer registryMu.Unlock()
 
 	if r.Name == "" {
-		panic("sync: provider registered without a name")
+		panic("reconcile: provider registered without a name")
 	}
 	if r.New == nil {
-		panic(fmt.Sprintf("sync: provider %q registered without a factory", r.Name))
+		panic(fmt.Sprintf("reconcile: provider %q registered without a factory", r.Name))
 	}
 	if _, exists := registry[r.Name]; exists {
-		panic(fmt.Sprintf("sync: provider %q registered twice", r.Name))
+		panic(fmt.Sprintf("reconcile: provider %q registered twice", r.Name))
 	}
 	registry[r.Name] = r
 }
@@ -189,19 +314,25 @@ func Descriptors() []Registration {
 
 	out := make([]Registration, 0, len(registry))
 	for _, r := range registry {
+		r.Fields = fieldsFor(r.Name)
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
-// Describe returns one provider's registration.
+// Describe returns one provider's registration, with its settings schema filled
+// in from providers.yaml.
 func Describe(name string) (Registration, bool) {
 	registryMu.RLock()
-	defer registryMu.RUnlock()
-
 	r, ok := registry[name]
-	return r, ok
+	registryMu.RUnlock()
+
+	if !ok {
+		return Registration{}, false
+	}
+	r.Fields = fieldsFor(name)
+	return r, true
 }
 
 // DefaultSettings renders a provider's declared defaults as a settings block,

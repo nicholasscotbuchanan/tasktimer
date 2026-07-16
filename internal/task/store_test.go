@@ -73,7 +73,7 @@ func TestSaveAndRecent(t *testing.T) {
 }
 
 // A session logged against a task name that matches a pulled remote task must
-// pick up the provider's key and URL, otherwise the sync daemon has no way to
+// pick up the provider's key and URL, otherwise the daemon has no way to
 // know where to push the time.
 func TestSaveLinksSessionToRemoteTask(t *testing.T) {
 	store := openTestStore(t)
@@ -161,7 +161,7 @@ func TestOpenRemotesExcludesDone(t *testing.T) {
 }
 
 // PendingPush is the guard against double-billing someone's tracker ticket, so it
-// gets its own test: once a session carries a sync signature it must never be
+// gets its own test: once a session carries a push signature it must never be
 // handed to a provider again.
 func TestPendingPushExcludesAlreadyPushed(t *testing.T) {
 	store := openTestStore(t)
@@ -180,15 +180,15 @@ func TestPendingPushExcludesAlreadyPushed(t *testing.T) {
 		}
 	}
 
-	// Nothing is pending until the user asks for it. This is the Synchronize
+	// Nothing is pending until the user asks for it. This is the Push
 	// button: sessions sit in the database, finished and eligible, and go nowhere
 	// until someone says so.
 	if pending, err := store.PendingPush("gateway"); err != nil || len(pending) != 0 {
-		t.Fatalf("PendingPush before RequestSync = %d (err %v), want 0", len(pending), err)
+		t.Fatalf("PendingPush before RequestPush = %d (err %v), want 0", len(pending), err)
 	}
 
-	if _, err := store.RequestSync(); err != nil {
-		t.Fatalf("RequestSync: %v", err)
+	if _, err := store.RequestPush(); err != nil {
+		t.Fatalf("RequestPush: %v", err)
 	}
 
 	pending, err := store.PendingPush("gateway")
@@ -199,7 +199,7 @@ func TestPendingPushExcludesAlreadyPushed(t *testing.T) {
 		t.Fatalf("PendingPush returned %d, want 2", len(pending))
 	}
 
-	if err := store.MarkPushed(pending[0].ID, "worklog-100", StatusSyncedProgress); err != nil {
+	if err := store.MarkPushed(pending[0].ID, "worklog-100", StatusPushed); err != nil {
 		t.Fatalf("MarkPushed: %v", err)
 	}
 
@@ -265,11 +265,11 @@ func TestPendingCompletions(t *testing.T) {
 
 	// Completing a task locally is still not a request to tell the provider.
 	if pending, err := store.PendingCompletions("gateway"); err != nil || len(pending) != 0 {
-		t.Fatalf("PendingCompletions before RequestSync = %v (err %v), want empty", pending, err)
+		t.Fatalf("PendingCompletions before RequestPush = %v (err %v), want empty", pending, err)
 	}
 
-	if _, err := store.RequestSync(); err != nil {
-		t.Fatalf("RequestSync: %v", err)
+	if _, err := store.RequestPush(); err != nil {
+		t.Fatalf("RequestPush: %v", err)
 	}
 
 	pending, err := store.PendingCompletions("gateway")
@@ -280,11 +280,11 @@ func TestPendingCompletions(t *testing.T) {
 		t.Fatalf("PendingCompletions = %+v, want one entry for ENG-9", pending)
 	}
 
-	if err := store.MarkCompletionSynced("gateway", "ENG-9"); err != nil {
-		t.Fatalf("MarkCompletionSynced: %v", err)
+	if err := store.MarkCompletionPushed("gateway", "ENG-9"); err != nil {
+		t.Fatalf("MarkCompletionPushed: %v", err)
 	}
 	if pending, err := store.PendingCompletions("gateway"); err != nil || len(pending) != 0 {
-		t.Fatalf("PendingCompletions after sync = %v (err %v), want empty", pending, err)
+		t.Fatalf("PendingCompletions after push = %v (err %v), want empty", pending, err)
 	}
 }
 
@@ -336,15 +336,15 @@ func TestTotalToday(t *testing.T) {
 }
 
 // Databases written by earlier versions of the app are missing columns that the
-// sync feature depends on. Opening one must migrate it rather than fail.
-func TestMigrateAddsSyncColumnsToLegacyDatabase(t *testing.T) {
+// reconcile feature depends on. Opening one must migrate it rather than fail.
+func TestMigrateAddsReconcileColumnsToLegacyDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 
 	legacy, err := OpenAt(path)
 	if err != nil {
 		t.Fatalf("OpenAt: %v", err)
 	}
-	// Rebuild the table as it looked before sync existed.
+	// Rebuild the table as it looked before reconcile existed.
 	if _, err := legacy.DB().Exec(`DROP TABLE tasks;
 		CREATE TABLE tasks (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

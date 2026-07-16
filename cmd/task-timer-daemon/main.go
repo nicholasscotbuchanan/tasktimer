@@ -1,10 +1,10 @@
-// Command task-timer-sync is the headless daemon that keeps the local timer
+// Command task-timer-daemon is the headless daemon that keeps the local timer
 // database in step with external task repositories.
 //
 // Backends are pluggable. Each provider package registers itself under a name;
 // this file blank-imports the ones compiled into the binary, and the config
-// file at <data-dir>/sync.json decides which of them actually run. To add a
-// backend, implement internal/sync.Provider and add one import line here.
+// file at <data-dir>/config.yaml decides which of them actually run. To add a
+// backend, implement internal/reconcile.Provider and add one import line here.
 package main
 
 import (
@@ -19,19 +19,19 @@ import (
 	"strings"
 	"syscall"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 	"task-timer-app/internal/task"
 
-	"task-timer-app/internal/sync/providers/gateway"
+	"task-timer-app/internal/reconcile/providers/gateway"
 
 	// Compiled-in providers. Blank imports; they register themselves.
-	_ "task-timer-app/internal/sync/providers/jsonfile"
+	_ "task-timer-app/internal/reconcile/providers/jsonfile"
 )
 
 func main() {
 	var (
-		configPath = flag.String("config", tsync.ConfigPath(), "path to the sync config file")
-		once       = flag.Bool("once", false, "run a single sync cycle and exit")
+		configPath = flag.String("config", reconcile.ConfigPath(), "path to the config file")
+		once       = flag.Bool("once", false, "run a single reconcile cycle and exit")
 		list       = flag.Bool("providers", false, "list the compiled-in providers and exit")
 		connect    = flag.Bool("connect", false, "sign in to the gateway in a browser, then exit")
 	)
@@ -40,7 +40,7 @@ func main() {
 	logger := log.New(os.Stderr, "", log.LstdFlags)
 
 	if *list {
-		for _, name := range tsync.Registered() {
+		for _, name := range reconcile.Registered() {
 			fmt.Println(name)
 		}
 		return
@@ -48,10 +48,14 @@ func main() {
 
 	if *connect {
 		if err := connectGateway(*configPath); err != nil {
-			logger.Fatalf("task-timer-sync: %v", err)
+			logger.Fatalf("task-timer-daemon: %v", err)
 		}
 		return
 	}
+
+	// Drop an editable providers.yaml beside the config on first run, so the
+	// settings schema is a file the user can see and change.
+	_ = reconcile.WriteSchemaSeed()
 
 	// Before anything reads an API token from the environment. A daemon started
 	// by systemd or launchd inherits none of the shell's exports, so without this
@@ -63,19 +67,19 @@ func main() {
 			logger.Print("shutting down")
 			return
 		}
-		logger.Fatalf("task-timer-sync: %v", err)
+		logger.Fatalf("task-timer-daemon: %v", err)
 	}
 }
 
-// loadEnvFile pulls <data-dir>/sync.env into the environment, if it exists.
+// loadEnvFile pulls <data-dir>/credentials.env into the environment, if it exists.
 //
 // Only the variable names are logged. The values are API tokens, and the whole
 // point of keeping them out of the config file is that they do not end up
 // somewhere they can be read by accident — a log file being exactly that.
 func loadEnvFile(logger *log.Logger) {
-	path := tsync.EnvPath()
+	path := reconcile.EnvPath()
 
-	names, err := tsync.LoadEnv(path)
+	names, err := reconcile.LoadEnv(path)
 	if err != nil {
 		logger.Printf("warning: %v", err)
 		return
@@ -86,7 +90,7 @@ func loadEnvFile(logger *log.Logger) {
 
 	logger.Printf("env:      %s (%s)", path, strings.Join(names, ", "))
 
-	if tsync.EnvFileIsExposed(path) {
+	if reconcile.EnvFileIsExposed(path) {
 		logger.Printf("warning: %s is readable by other users; it holds API tokens. chmod 600 it.", path)
 	}
 }
@@ -96,10 +100,10 @@ func loadEnvFile(logger *log.Logger) {
 // daemon rather than a separate binary so that a headless install — a box with
 // no desktop app on it at all — can still be connected from a terminal.
 //
-// The token is written to sync.env, which is the same file the daemon reads at
+// The token is written to credentials.env, which is the same file the daemon reads at
 // startup, so the next cycle picks it up with no further ceremony.
 func connectGateway(configPath string) error {
-	cfg, err := tsync.LoadConfig(configPath)
+	cfg, err := reconcile.LoadConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -153,7 +157,7 @@ func connectGateway(configPath string) error {
 }
 
 func run(configPath string, once bool, logger *log.Logger) error {
-	cfg, err := tsync.LoadConfig(configPath)
+	cfg, err := reconcile.LoadConfig(configPath)
 	if err != nil {
 		return err
 	}
@@ -172,7 +176,7 @@ func run(configPath string, once bool, logger *log.Logger) error {
 	logger.Printf("database: %s", task.DBPath())
 	logger.Printf("config:   %s", configPath)
 
-	engine, err := tsync.NewEngine(store, cfg, logger)
+	engine, err := reconcile.NewEngine(store, cfg, logger)
 	if err != nil {
 		return err
 	}
@@ -187,6 +191,6 @@ func run(configPath string, once bool, logger *log.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	logger.Printf("syncing every %s", interval)
+	logger.Printf("reconciling every %s", interval)
 	return engine.Run(ctx, interval)
 }

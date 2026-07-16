@@ -4,7 +4,7 @@ Task Timer is a desktop stopwatch for people who have to account for their worki
 
 The desktop app talks to exactly two things: the local SQLite database, and the Task Timer backend. Any integration with an external tracker (Jira, and whatever comes later) lives on the backend — the client holds no tracker credentials of any kind.
 
-Everything is local by default. Nothing leaves your machine unless you explicitly configure a sync provider.
+Everything is local by default. Nothing leaves your machine unless you explicitly configure a provider.
 
 ![The Overview page](docs/screenshots/overview.png)
 
@@ -17,7 +17,7 @@ Everything is local by default. Nothing leaves your machine unless you explicitl
 **Reports** — where the hours actually went.
 ![The Reports page](docs/screenshots/reports.png)
 
-**Settings** — the working day and the sync providers.
+**Settings** — the working day and the providers.
 ![The Settings page](docs/screenshots/settings.png)
 
 </details>
@@ -31,8 +31,8 @@ Everything is local by default. Nothing leaves your machine unless you explicitl
 - [Get the code](#get-the-code)
 - [Run it](#run-it)
 - [Build it](#build-it)
-- [Set up syncing](#set-up-syncing)
-- [Run the sync daemon in the background](#run-the-sync-daemon-in-the-background)
+- [Set up reconciliation](#set-up-reconciliation)
+- [Run the daemon in the background](#run-the-daemon-in-the-background)
 - [Where your data lives](#where-your-data-lives)
 - [Build installable packages](#build-installable-packages)
 - [Development](#development)
@@ -43,14 +43,14 @@ Everything is local by default. Nothing leaves your machine unless you explicitl
 
 ## What you get
 
-The project builds **two** programs. They share one SQLite database and are useful independently — if you never want to sync anything, you only need the first.
+The project builds **two** programs. They share one SQLite database and are useful independently — if you never want to reconcile anything, you only need the first.
 
 | Program | Source | What it does |
 | --- | --- | --- |
 | `task-timer` | `cmd/task-timer` | The desktop app: the timer, the task table, reports, settings. |
-| `task-timer-sync` | `cmd/task-timer-sync` | A headless daemon that pulls tasks from the Task Timer backend (or a JSON directory) and pushes your logged time back. Entirely optional. |
+| `task-timer-daemon` | `cmd/task-timer-daemon` | A headless daemon that pulls tasks from the Task Timer backend (or a JSON directory) and pushes your logged time back. Entirely optional. |
 
-On macOS the built binaries are named `TaskTimer` and `TaskTimer-Sync`; on Linux and Windows they are `task-timer` and `task-timer-sync`. That is just a naming convention in the Makefile — they are the same programs.
+On macOS the built binaries are named `TaskTimer` and `TaskTimer-Daemon`; on Linux and Windows they are `task-timer` and `task-timer-daemon`. That is just a naming convention in the Makefile — they are the same programs.
 
 ---
 
@@ -180,11 +180,11 @@ The fastest way to see the app, straight from source:
 go run ./cmd/task-timer
 ```
 
-The first launch creates the database and a starter sync config in your data directory (see [Where your data lives](#where-your-data-lives)). The window opens with an empty task table.
+The first launch creates the database and a starter config in your data directory (see [Where your data lives](#where-your-data-lives)). The window opens with an empty task table.
 
 **To time some work:**
 
-1. Type a task name into the box under the clock — or pick one from the dropdown, which lists tasks you have used before plus anything pulled in from a sync provider.
+1. Type a task name into the box under the clock — or pick one from the dropdown, which lists tasks you have used before plus anything pulled in from a provider.
 2. Press **Start**.
 3. Press **Stop** when you are done. The session is written to the database and appears in the table.
 
@@ -212,7 +212,7 @@ They land in a directory named for your platform:
 
 ```text
 build/bin/darwin-arm64/TaskTimer          # the app
-build/bin/darwin-arm64/TaskTimer-Sync     # the sync daemon
+build/bin/darwin-arm64/TaskTimer-Daemon     # the daemon
 ```
 
 Run the app directly:
@@ -252,9 +252,9 @@ make help
 
 ---
 
-## Set up syncing
+## Set up reconciliation
 
-Syncing is **off by default** and entirely optional. If you just want a local stopwatch, skip this section.
+Pushing is **off by default** and entirely optional. If you just want a local stopwatch, skip this section.
 
 Two providers ship in the box:
 
@@ -266,7 +266,7 @@ Two providers ship in the box:
 Confirm what your binary has compiled in:
 
 ```bash
-go run ./cmd/task-timer-sync -providers
+go run ./cmd/task-timer-daemon -providers
 ```
 
 ```text
@@ -276,42 +276,35 @@ jsonfile
 
 ### The config file
 
-Syncing is driven by `sync.json`, which lives in your data directory. **You do not have to write it from scratch** — run one sync cycle and the daemon will drop a fully-commented starter file in the right place and tell you where:
+Pushing is driven by `config.yaml`, which lives in your data directory. **You do not have to write it from scratch** — run one reconcile cycle and the daemon will drop a fully-commented starter file in the right place and tell you where:
 
 ```bash
-go run ./cmd/task-timer-sync -once
+go run ./cmd/task-timer-daemon -once
 ```
 
 ```text
 database: /Users/you/Library/Application Support/TaskTimer/tasks.db
-config:   /Users/you/Library/Application Support/TaskTimer/sync.json
+config:   /Users/you/Library/Application Support/TaskTimer/config.yaml
 provider gateway: disabled, skipping
 provider jsonfile: disabled, skipping
-no providers enabled; edit /Users/you/Library/Application Support/TaskTimer/sync.json to configure one
+no providers enabled; edit /Users/you/Library/Application Support/TaskTimer/config.yaml to configure one
 ```
 
 The file it writes contains **every provider compiled into your build**, present but switched off, with each one's settings spelled out:
 
-```json
-{
-  "poll_interval": "60s",
-  "providers": [
-    {
-      "name": "gateway",
-      "enabled": false,
-      "settings": {
-        "api_token_env": "TASK_TIMER_GATEWAY_TOKEN",
-        "base_url": "https://tasktimer.example.com",
-        "complete_remote_tasks": false
-      }
-    },
-    {
-      "name": "jsonfile",
-      "enabled": false,
-      "settings": { "dir": "" }
-    }
-  ]
-}
+```yaml
+poll_interval: 60s
+providers:
+  - name: gateway
+    enabled: false
+    settings:
+      api_token_env: TASK_TIMER_GATEWAY_TOKEN
+      base_url: ""
+      complete_remote_tasks: false
+  - name: jsonfile
+    enabled: false
+    settings:
+      dir: ""
 ```
 
 That file is **generated from the provider registry**, not written from a template — so a build with a new backend compiled in produces a starter config containing it, with no one having to remember to update an example.
@@ -320,7 +313,7 @@ You can edit it by hand, or use the app's **Settings** page, which renders a for
 
 ### Worked example: the `jsonfile` provider
 
-This one needs no credentials and no network, so you can run it end to end right now to see how syncing behaves. It uses a scratch data directory so it will not touch your real one.
+This one needs no credentials and no network, so you can run it end to end right now to see how reconciliation behaves. It uses a scratch data directory so it will not touch your real one.
 
 **1. Create a scratch workspace and a task to pull in:**
 
@@ -344,25 +337,25 @@ EOF
 **2. Point a config at that directory and turn the provider on:**
 
 ```bash
-cat > "$TT/sync.json" <<EOF
-{
-  "poll_interval": "60s",
-  "providers": [
-    { "name": "jsonfile", "enabled": true, "settings": { "dir": "$TT/exchange" } }
-  ]
-}
+cat > "$TT/config.yaml" <<EOF
+poll_interval: 60s
+providers:
+  - name: jsonfile
+    enabled: true
+    settings:
+      dir: $TT/exchange
 EOF
 ```
 
-**3. Run a single sync cycle:**
+**3. Run a single reconcile cycle:**
 
 ```bash
-TASK_TIMER_DATA_DIR="$TT" go run ./cmd/task-timer-sync -once
+TASK_TIMER_DATA_DIR="$TT" go run ./cmd/task-timer-daemon -once
 ```
 
 ```text
 database: /tmp/tasktimer-demo/tasks.db
-config:   /tmp/tasktimer-demo/sync.json
+config:   /tmp/tasktimer-demo/config.yaml
 provider jsonfile: enabled
 provider jsonfile: pulled 1 task(s)
 ```
@@ -379,7 +372,7 @@ The directory contract is:
 
 ```text
 <dir>/tasks/*.json       read   — task definitions to pull in
-<dir>/worklogs/*.json    write  — one file per synced session
+<dir>/worklogs/*.json    write  — one file per pushed session
 <dir>/completed/*.json   write  — one file per completed task
 ```
 
@@ -387,40 +380,34 @@ Clean up with `rm -rf /tmp/tasktimer-demo`.
 
 ### Gateway (the Task Timer backend)
 
-The `gateway` provider is how the client syncs against your team's task tracker. It never holds a tracker credential: the tracker integration (Jira, its OAuth app, which issues you see, whether you may close them) lives entirely on the backend server. The client only holds a **bearer token** that identifies you to that backend. See the [server README](server/README.md) for standing up and configuring the backend, or [SERVER.md](SERVER.md) for its architecture, the OAuth flow, and the API contract.
+The `gateway` provider is how the client reconciles against your team's task tracker. It never holds a tracker credential: the tracker integration (Jira, its OAuth app, which issues you see, whether you may close them) lives entirely on the backend server. The client only holds a **bearer token** that identifies you to that backend. See the [server README](server/README.md) for standing up and configuring the backend, or [SERVER.md](SERVER.md) for its architecture, the OAuth flow, and the API contract.
 
 **1. Point the provider at your backend and log in.**
 
-The backend URL is the only thing you configure by hand. Set it on the app's Settings page (the **Gateway URL** field), or drop it into `sync.json`, then sign in:
+The backend URL is the only thing you configure by hand. Set it on the app's Settings page (the **Gateway URL** field), or drop it into `config.yaml`, then sign in:
 
 ```bash
-go run ./cmd/task-timer-sync -connect
+go run ./cmd/task-timer-daemon -connect
 ```
 
-This opens your browser, signs you in to the backend, and writes the bearer token to `sync.env` under `TASK_TIMER_GATEWAY_TOKEN` — the same file the daemon reads at startup. On the desktop app, the Settings page shows a **Log in** button that does the same thing. Either way, no token is ever typed into a config file or a text field.
+This opens your browser, signs you in to the backend, and writes the bearer token to `credentials.env` under `TASK_TIMER_GATEWAY_TOKEN` — the same file the daemon reads at startup. On the desktop app, the Settings page shows a **Log in** button that does the same thing. Either way, no token is ever typed into a config file or a text field.
 
-**2. Enable the provider.** Either use the app's Settings page, or edit `sync.json`:
+**2. Enable the provider.** Either use the app's Settings page, or edit `config.yaml`:
 
-```json
-{
-  "poll_interval": "60s",
-  "providers": [
-    {
-      "name": "gateway",
-      "enabled": true,
-      "settings": {
-        "base_url": "https://tasktimer.example.com",
-        "api_token_env": "TASK_TIMER_GATEWAY_TOKEN",
-        "complete_remote_tasks": false
-      }
-    }
-  ]
-}
+```yaml
+poll_interval: 60s
+providers:
+  - name: gateway
+    enabled: true
+    settings:
+      base_url: https://tasktimer.example.com
+      api_token_env: TASK_TIMER_GATEWAY_TOKEN
+      complete_remote_tasks: false
 ```
 
 | Setting | Meaning |
 | --- | --- |
-| `base_url` | The Task Timer backend this client synchronises through. |
+| `base_url` | The Task Timer backend this client reconciles through. |
 | `api_token_env` | The **name of an environment variable** holding the bearer token. `-connect` writes it there for you. |
 | `complete_remote_tasks` | Let the app's **Complete** button close the remote issue. Defaults to `false`, and the backend must independently allow it — writing to a shared board is opt-in on both sides. |
 
@@ -429,19 +416,19 @@ Which issues you see, the query that selects them, and the transition used to cl
 **3. Test it with a single cycle** before leaving it running:
 
 ```bash
-go run ./cmd/task-timer-sync -once
+go run ./cmd/task-timer-daemon -once
 ```
 
 ---
 
-## Run the sync daemon in the background
+## Run the daemon in the background
 
-The daemon is what actually talks to the backend. The desktop app only writes sessions to the local database — nothing is pulled or pushed until `task-timer-sync` is running.
+The daemon is what actually talks to the backend. The desktop app only writes sessions to the local database — nothing is pulled or pushed until `task-timer-daemon` is running.
 
 For a one-off, leave it in a terminal; it loops on `poll_interval`:
 
 ```bash
-task-timer-sync
+task-timer-daemon
 ```
 
 **Every package ships a service definition**, so you do not have to write one. Pick your platform below.
@@ -450,16 +437,16 @@ task-timer-sync
 
 A daemon started by systemd or launchd **does not inherit your shell's exports**. `export TASK_TIMER_GATEWAY_TOKEN=...` in your `.bashrc` will not reach it, and the daemon will fail with a `401` that looks like a wrong token.
 
-Running `task-timer-sync -connect` writes the token to `sync.env` in the data directory — beside `sync.json` — which is the same file the daemon reads at startup, so this is handled for you. If you ever need to place it by hand:
+Running `task-timer-daemon -connect` writes the token to `credentials.env` in the data directory — beside `config.yaml` — which is the same file the daemon reads at startup, so this is handled for you. If you ever need to place it by hand:
 
 ```bash
 # macOS
-printf 'TASK_TIMER_GATEWAY_TOKEN=your-token-here\n' > ~/Library/Application\ Support/TaskTimer/sync.env
-chmod 600 ~/Library/Application\ Support/TaskTimer/sync.env
+printf 'TASK_TIMER_GATEWAY_TOKEN=your-token-here\n' > ~/Library/Application\ Support/TaskTimer/credentials.env
+chmod 600 ~/Library/Application\ Support/TaskTimer/credentials.env
 
 # Linux
-printf 'TASK_TIMER_GATEWAY_TOKEN=your-token-here\n' > ~/.config/task-timer/sync.env
-chmod 600 ~/.config/task-timer/sync.env
+printf 'TASK_TIMER_GATEWAY_TOKEN=your-token-here\n' > ~/.config/task-timer/credentials.env
+chmod 600 ~/.config/task-timer/credentials.env
 ```
 
 Format is `KEY=VALUE`, one per line; `#` comments and `export ` prefixes are fine. A variable already set in the real environment always wins. The daemon logs the variable **names** it loaded, never the values, and warns you if the file is readable by other users.
@@ -472,14 +459,14 @@ This is why none of the service definitions below contain a secret.
 The app bundle ships the agent and a script to install it:
 
 ```bash
-/Applications/TaskTimer.app/Contents/Resources/sync-agent.sh install
+/Applications/TaskTimer.app/Contents/Resources/daemon-agent.sh install
 ```
 
-That writes `~/Library/LaunchAgents/com.tasktimer.sync.plist`, pointed at the daemon inside the bundle, and starts it. It logs to `~/Library/Logs/task-timer-sync.log`.
+That writes `~/Library/LaunchAgents/com.tasktimer.daemon.plist`, pointed at the daemon inside the bundle, and starts it. It logs to `~/Library/Logs/task-timer-daemon.log`.
 
 ```bash
-/Applications/TaskTimer.app/Contents/Resources/sync-agent.sh status
-/Applications/TaskTimer.app/Contents/Resources/sync-agent.sh uninstall
+/Applications/TaskTimer.app/Contents/Resources/daemon-agent.sh status
+/Applications/TaskTimer.app/Contents/Resources/daemon-agent.sh uninstall
 ```
 
 The script resolves the daemon's path from its own location, so a bundle you run from `~/Applications` still installs a working agent.
@@ -489,12 +476,12 @@ The script resolves the daemon's path from its own location, so a bundle you run
 <details>
 <summary><b>Linux — systemd user service</b></summary>
 
-The `.deb` and `.rpm` install `/usr/lib/systemd/user/task-timer-sync.service`. Enable it for **your own user** — it is a user service, because the database and the token are yours, not the machine's:
+The `.deb` and `.rpm` install `/usr/lib/systemd/user/task-timer-daemon.service`. Enable it for **your own user** — it is a user service, because the database and the token are yours, not the machine's:
 
 ```bash
-systemctl --user enable --now task-timer-sync.service
-systemctl --user status task-timer-sync.service
-journalctl --user -u task-timer-sync -f
+systemctl --user enable --now task-timer-daemon.service
+systemctl --user status task-timer-daemon.service
+journalctl --user -u task-timer-daemon -f
 ```
 
 It is **not** enabled automatically on install. It polls your issue tracker over the network, and a package should not switch that on for every account on a machine without being asked.
@@ -504,19 +491,19 @@ It is **not** enabled automatically on install. It polls your issue tracker over
 <details>
 <summary><b>Windows — run at login</b></summary>
 
-The installer offers **"Run the sync daemon at login"** as an optional component on the Components page. It is unticked by default; tick it and the installer adds a Startup shortcut, and the daemon runs from your next sign-in.
+The installer offers **"Run the daemon at login"** as an optional component on the Components page. It is unticked by default; tick it and the installer adds a Startup shortcut, and the daemon runs from your next sign-in.
 
-The daemon is installed either way, so you can also just run `task-timer-sync.exe` from the install directory whenever you want.
+The daemon is installed either way, so you can also just run `task-timer-daemon.exe` from the install directory whenever you want.
 
 </details>
 
-> Whatever you choose, the daemon does **nothing** until you enable a provider — in the app's Settings page, or in `sync.json`. An enabled service with no providers is a harmless idle loop.
+> Whatever you choose, the daemon does **nothing** until you enable a provider — in the app's Settings page, or in `config.yaml`. An enabled service with no providers is a harmless idle loop.
 
 ### Daemon flags
 
 | Flag | Meaning |
 | --- | --- |
-| `-once` | Run a single sync cycle and exit. Ideal for testing, or for a cron job. |
+| `-once` | Run a single reconcile cycle and exit. Ideal for testing, or for a cron job. |
 | `-providers` | List the compiled-in providers and exit. |
 | `-config <path>` | Use a config file somewhere other than the data directory. |
 
@@ -532,7 +519,7 @@ Both programs share one database and one config file, in a platform-appropriate 
 | Linux | `~/.config/task-timer/` |
 | Windows | `%APPDATA%\TaskTimer\` |
 
-It holds `tasks.db` (your work sessions) and `sync.json` (the provider config). The **About** page in the app shows the exact paths on your machine.
+It holds `tasks.db` (your work sessions) and `config.yaml` (the provider config). The **About** page in the app shows the exact paths on your machine.
 
 Override the location with an environment variable — useful for testing, for a portable install, or for keeping work and personal time apart:
 
@@ -582,7 +569,7 @@ make exe              # build/dist/task-timer-installer-{amd64,arm64}.exe
 
 Windows ships **one installer per CPU**. Give people on Arm laptops (Snapdragon X, Surface Pro X) the `arm64` one; everyone else takes `amd64`. Each installer checks the machine's real CPU on startup and refuses to install onto one it cannot run on, so a mix-up is a clear error message rather than an app that installs and then won't launch.
 
-> **`windows/arm64` is built and linked, but not yet verified on real hardware.** Fyne draws through desktop OpenGL, and Windows on ARM has no guaranteed native OpenGL driver — depending on the machine it may need Microsoft's OpenGL/OpenCL Compatibility Pack, or fall back to a mapping layer. If the arm64 GUI fails to start on an Arm PC, that is the first thing to check; the `amd64` installer also runs on those machines under emulation and is the safe fallback. `task-timer-sync.exe` has no GUI and is unaffected.
+> **`windows/arm64` is built and linked, but not yet verified on real hardware.** Fyne draws through desktop OpenGL, and Windows on ARM has no guaranteed native OpenGL driver — depending on the machine it may need Microsoft's OpenGL/OpenCL Compatibility Pack, or fall back to a mapping layer. If the arm64 GUI fails to start on an Arm PC, that is the first thing to check; the `amd64` installer also runs on those machines under emulation and is the safe fallback. `task-timer-daemon.exe` has no GUI and is unaffected.
 
 Or all three in one container run:
 
@@ -662,44 +649,44 @@ If you change the SVG, run this and commit the regenerated `internal/assets/icon
 | Path | What is in it |
 | --- | --- |
 | `cmd/task-timer/` | The desktop app's entry point. Just wiring. |
-| `cmd/task-timer-sync/` | The sync daemon's entry point. |
+| `cmd/task-timer-daemon/` | The daemon's entry point. |
 | `internal/ui/` | The whole interface: theme, shared components, and the five pages. |
 | `internal/task/` | The domain model, the SQLite store, and the reporting aggregation. |
-| `internal/sync/` | The sync engine and the provider interface. |
-| `internal/sync/providers/` | The gateway and JSON-file providers. |
+| `internal/reconcile/` | The reconcile engine and the provider interface. |
+| `internal/reconcile/providers/` | The gateway and JSON-file providers. |
 | `internal/assets/` | The app icon and the embedded fonts. |
 | `tools/icongen/` | The icon generator. |
 | `pkg/`, `scripts/` | Packaging scripts (`.dmg`, `.deb`, `.rpm`, Windows installer). |
 
-### Adding a sync provider
+### Adding a provider
 
 Backends are **plugins**. The gateway is not special — it is just one of them. Nothing in the engine, the store, the config layer or the app knows any particular backend exists.
 
 To add one (GitHub Issues, Linear, Asana…):
 
-**1. Implement `sync.Provider`** in a new package under `internal/sync/providers/`. `Pull` and `Push` are independent — implement one and return `sync.ErrUnsupported` from the other if that is all your backend can do.
+**1. Implement `reconcile.Provider`** in a new package under `internal/reconcile/providers/`. `Pull` and `Push` are independent — implement one and return `reconcile.ErrUnsupported` from the other if that is all your backend can do.
 
 **2. Register it from `init()`, declaring your settings as `Fields`:**
 
 ```go
 func init() {
-    tsync.Register(tsync.Registration{
+    reconcile.Register(reconcile.Registration{
         Name:    "linear",
         Title:   "Linear",
         Summary: "Pull assigned Linear issues and push time back.",
-        New:     New, // func(json.RawMessage) (tsync.Provider, error)
-        Fields: []tsync.Field{
+        New:     New, // func(json.RawMessage) (reconcile.Provider, error)
+        Fields: []reconcile.Field{
             {
                 Key:     "api_key_env",
                 Label:   "API key variable",
                 Hint:    "The name of an environment variable holding the key.",
-                Kind:    tsync.KindText,
+                Kind:    reconcile.KindText,
                 Default: "LINEAR_API_KEY",
             },
             {
                 Key:     "push_time",
                 Label:   "Time tracking",
-                Kind:    tsync.KindBool,
+                Kind:    reconcile.KindBool,
                 Default: true,
             },
         },
@@ -707,17 +694,17 @@ func init() {
 }
 ```
 
-**3. Add one blank import** to `cmd/task-timer-sync/main.go` and `cmd/task-timer/main.go`.
+**3. Add one blank import** to `cmd/task-timer-daemon/main.go` and `cmd/task-timer/main.go`.
 
 That is the whole job. Because you declared `Fields`, you get all of this for free:
 
-- The provider appears in `task-timer-sync -providers`.
-- It is written into the starter `sync.json`, with your defaults filled in.
+- The provider appears in `task-timer-daemon -providers`.
+- It is written into the starter `config.yaml`, with your defaults filled in.
 - **The app's Settings page renders a form for it** — a card, an enable toggle, and the right control for every field.
 
-> **The rule that makes this work:** `internal/ui` must never import a provider package. The settings screen is built by walking `sync.Descriptors()`, so it can configure a backend it has never heard of. Only a binary's `main` may name a provider.
+> **The rule that makes this work:** `internal/ui` must never import a provider package. The settings screen is built by walking `reconcile.Descriptors()`, so it can configure a backend it has never heard of. Only a binary's `main` may name a provider.
 >
-> This is enforced by `TestAppDoesNotDependOnAnyProvider` in `internal/sync/architecture_test.go`, which fails the build if the app, the engine, or the store grows a dependency on any backend. An earlier version of the settings page bound its form directly to a provider's own `Config` type — it compiled and it worked, and it quietly meant that adding Linear would have required editing the app. A plugin system whose host must be modified for each plugin is not a plugin system.
+> This is enforced by `TestAppDoesNotDependOnAnyProvider` in `internal/reconcile/architecture_test.go`, which fails the build if the app, the engine, or the store grows a dependency on any backend. An earlier version of the settings page bound its form directly to a provider's own `Config` type — it compiled and it worked, and it quietly meant that adding Linear would have required editing the app. A plugin system whose host must be modified for each plugin is not a plugin system.
 
 **Secrets:** declare the *name of an environment variable*, not the secret. A field you do not declare is never rendered, and is preserved untouched when the Settings page saves — which is how the gateway supports an inline `api_token` for hand-editing while keeping it off the screen.
 
@@ -734,16 +721,16 @@ You are missing the X11/OpenGL development packages. Install the list in [Prereq
 **The app builds but no window appears**
 The GUI needs a real display. It will not open a window over a plain SSH session, inside a container, or on a headless server. To inspect the interface in those environments, use the PNG render test described under [Development](#development).
 
-**`no providers enabled; edit .../sync.json to configure one`**
-Expected on first run — syncing ships switched off. Set `"enabled": true` on the provider you want, in the file the message points at.
+**`no providers enabled; edit .../config.yaml to configure one`**
+Expected on first run — reconciliation ships switched off. Set `enabled: true` on the provider you want, in the file the message points at.
 
 **Gateway: `401 Unauthorized`**
 Either the bearer token has been revoked, or the variable named by `api_token_env` is not set *in the environment the daemon actually runs in*. This is the classic failure for a service: launchd and systemd inherit none of your shell's exports, so a setup that works perfectly from a terminal dies as a daemon.
 
-Run `task-timer-sync -connect` to sign in again; it writes the token to `sync.env` in the data directory, which is where the daemon looks. The daemon logs the variable names it loaded at startup, so you can see whether it found them:
+Run `task-timer-daemon -connect` to sign in again; it writes the token to `credentials.env` in the data directory, which is where the daemon looks. The daemon logs the variable names it loaded at startup, so you can see whether it found them:
 
 ```text
-env:      /home/you/.config/task-timer/sync.env (TASK_TIMER_GATEWAY_TOKEN)
+env:      /home/you/.config/task-timer/credentials.env (TASK_TIMER_GATEWAY_TOKEN)
 ```
 
 If that line is absent, the daemon has no token.

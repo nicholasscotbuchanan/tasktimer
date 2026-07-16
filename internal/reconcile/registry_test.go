@@ -1,4 +1,4 @@
-package sync
+package reconcile
 
 import (
 	"encoding/json"
@@ -32,12 +32,17 @@ func TestDefaultSettingsRendersDeclaredFields(t *testing.T) {
 		New: func(json.RawMessage) (Provider, error) {
 			return nil, ErrUnsupported
 		},
-		Fields: []Field{
-			{Key: "endpoint", Kind: KindText, Default: "https://example.invalid"},
-			{Key: "verbose", Kind: KindBool, Default: true},
-			{Key: "empty", Kind: KindText},
-		},
 	})
+
+	// The settings schema now lives in providers.yaml, loaded once. Force that
+	// load, then declare a schema for the test provider the same way the file
+	// would — this is what Describe/Descriptors hand back.
+	_ = Descriptors()
+	schemaFields[name] = []Field{
+		{Key: "endpoint", Kind: KindText, Default: "https://example.invalid"},
+		{Key: "verbose", Kind: KindBool, Default: true},
+		{Key: "empty", Kind: KindText},
+	}
 
 	var settings map[string]any
 	if err := json.Unmarshal(DefaultSettings(name), &settings); err != nil {

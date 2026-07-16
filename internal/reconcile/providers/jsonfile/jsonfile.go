@@ -17,7 +17,7 @@ import (
 	"strings"
 	"time"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 	"task-timer-app/internal/task"
 )
 
@@ -25,33 +25,20 @@ import (
 const ProviderName = "jsonfile"
 
 func init() {
-	tsync.Register(tsync.Registration{
+	// The settings schema (the "dir" field) is declared in providers.yaml, not
+	// here — see package reconcile. This registration is only behaviour: name,
+	// title, and the factory.
+	reconcile.Register(reconcile.Registration{
 		Name:    ProviderName,
 		Title:   "JSON File",
 		Summary: "Exchange tasks and work logs through a directory of JSON files.",
 		New:     New,
-		Fields:  Fields(),
 	})
-}
-
-// Fields declares the settings a user may edit, so the desktop app can render a
-// form for this provider without importing it.
-func Fields() []tsync.Field {
-	return []tsync.Field{
-		{
-			Key:         "dir",
-			Label:       "Directory",
-			Hint:        "Where the provider reads tasks from and writes work logs to.",
-			Kind:        tsync.KindText,
-			Placeholder: "(defaults to a sync directory beside the database)",
-			Default:     "",
-		},
-	}
 }
 
 // Config is the jsonfile provider's settings block.
 type Config struct {
-	// Dir is the root of the exchange directory. It defaults to a "sync"
+	// Dir is the root of the exchange directory. It defaults to an "exchange"
 	// directory beside the database.
 	Dir string `json:"dir"`
 }
@@ -59,14 +46,14 @@ type Config struct {
 // Provider exchanges tasks and work logs through a directory tree:
 //
 //	<dir>/tasks/*.json      read  — task definitions to pull
-//	<dir>/worklogs/*.json   write — one file per synced session
+//	<dir>/worklogs/*.json   write — one file per pushed session
 //	<dir>/completed/*.json  write — one file per completed task
 type Provider struct {
 	dir string
 }
 
 // New builds a jsonfile provider from its config block.
-func New(raw json.RawMessage) (tsync.Provider, error) {
+func New(raw json.RawMessage) (reconcile.Provider, error) {
 	var cfg Config
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -76,10 +63,10 @@ func New(raw json.RawMessage) (tsync.Provider, error) {
 
 	dir := cfg.Dir
 	if dir == "" {
-		dir = filepath.Join(task.DataDir(), "sync")
+		dir = filepath.Join(task.DataDir(), "exchange")
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("creating jsonfile sync directory %s: %w", dir, err)
+		return nil, fmt.Errorf("creating jsonfile exchange directory %s: %w", dir, err)
 	}
 
 	return &Provider{dir: dir}, nil
@@ -173,7 +160,7 @@ type workLogFile struct {
 }
 
 // Push writes a work log as JSON and returns its filename as the signature.
-func (p *Provider) Push(ctx context.Context, wl tsync.WorkLog) (string, error) {
+func (p *Provider) Push(ctx context.Context, wl reconcile.WorkLog) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
@@ -233,7 +220,7 @@ func (p *Provider) Complete(ctx context.Context, key string) error {
 }
 
 // sanitize strips path separators out of a provider key so it cannot escape the
-// sync directory when used as a filename.
+// exchange directory when used as a filename.
 func sanitize(key string) string {
 	replacer := strings.NewReplacer("/", "_", `\`, "_", "..", "_", ":", "_")
 	return replacer.Replace(key)

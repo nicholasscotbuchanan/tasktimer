@@ -8,7 +8,7 @@ import (
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 
 	// The settings screen is built from the provider registry, so a test of it
 	// needs providers registered — exactly as a binary's main does it. This is
@@ -17,8 +17,8 @@ import (
 	//
 	// The gateway is included so the render test lays out a connectable provider's
 	// card, with its Log in button, exactly as the real app does.
-	_ "task-timer-app/internal/sync/providers/gateway"
-	_ "task-timer-app/internal/sync/providers/jsonfile"
+	_ "task-timer-app/internal/reconcile/providers/gateway"
+	_ "task-timer-app/internal/reconcile/providers/jsonfile"
 )
 
 // TestSettingsRendersEveryRegisteredProvider checks the screen is driven by the
@@ -29,9 +29,9 @@ func TestSettingsRendersEveryRegisteredProvider(t *testing.T) {
 	a := newWithApp(test.NewApp(), store)
 
 	forms := a.settings.providers
-	if len(forms) != len(tsync.Descriptors()) {
+	if len(forms) != len(reconcile.Descriptors()) {
 		t.Fatalf("rendered %d provider forms, but %d providers are registered",
-			len(forms), len(tsync.Descriptors()))
+			len(forms), len(reconcile.Descriptors()))
 	}
 
 	for _, form := range forms {
@@ -73,7 +73,7 @@ func TestSettingsSavePreservesUndeclaredKeys(t *testing.T) {
 	    }
 	  ]
 	}`
-	if err := os.WriteFile(tsync.ConfigPath(), []byte(original), 0o600); err != nil {
+	if err := os.WriteFile(reconcile.ConfigPath(), []byte(original), 0o600); err != nil {
 		t.Fatalf("seeding the config: %v", err)
 	}
 
@@ -86,12 +86,12 @@ func TestSettingsSavePreservesUndeclaredKeys(t *testing.T) {
 	a.settings.save()
 
 	// Read the file back the way the daemon would.
-	cfg, err := tsync.LoadConfig(tsync.ConfigPath())
+	cfg, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
 		t.Fatalf("reloading the config: %v", err)
 	}
 
-	var block tsync.ProviderConfig
+	var block reconcile.ProviderConfig
 	for _, p := range cfg.Providers {
 		if p.Name == "gateway" {
 			block = p
@@ -126,7 +126,7 @@ func TestSettingsSaveAddsAProviderMissingFromTheConfig(t *testing.T) {
 
 	// A config that predates the jsonfile provider entirely.
 	original := `{"poll_interval": "60s", "providers": [{"name": "gateway", "enabled": false, "settings": {}}]}`
-	if err := os.WriteFile(tsync.ConfigPath(), []byte(original), 0o600); err != nil {
+	if err := os.WriteFile(reconcile.ConfigPath(), []byte(original), 0o600); err != nil {
 		t.Fatalf("seeding the config: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestSettingsSaveAddsAProviderMissingFromTheConfig(t *testing.T) {
 	jsonfile.controls["dir"].(*widget.Entry).SetText("/tmp/exchange")
 	a.settings.save()
 
-	cfg, err := tsync.LoadConfig(tsync.ConfigPath())
+	cfg, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
 		t.Fatalf("reloading the config: %v", err)
 	}

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 )
 
 // connectTimeout bounds the whole flow. A user who wandered off mid-consent
@@ -191,15 +191,15 @@ func exchange(ctx context.Context, baseURL, code, verifier string) (string, Iden
 //
 // It honours a custom api_token_env the user may have set in the config, falling
 // back to the default variable name otherwise.
-func connect(ctx context.Context, baseURL string) (tsync.Identity, error) {
+func connect(ctx context.Context, baseURL string) (reconcile.Identity, error) {
 	token, who, err := Connect(ctx, baseURL)
 	if err != nil {
-		return tsync.Identity{}, err
+		return reconcile.Identity{}, err
 	}
 	if _, err := SaveToken(configuredConfig(), token); err != nil {
-		return tsync.Identity{}, err
+		return reconcile.Identity{}, err
 	}
-	return tsync.Identity{
+	return reconcile.Identity{
 		Email:       who.Email,
 		DisplayName: who.DisplayName,
 		SiteURL:     who.SiteURL,
@@ -225,7 +225,7 @@ func hasToken() bool {
 		return true
 	}
 
-	names, err := tsync.EnvNames(tsync.EnvPath())
+	names, err := reconcile.EnvNames(reconcile.EnvPath())
 	if err != nil {
 		return false
 	}
@@ -237,12 +237,12 @@ func hasToken() bool {
 	return false
 }
 
-// configuredConfig reads this provider's block from the sync config so the
+// configuredConfig reads this provider's block from the config so the
 // connect flow honours the user's settings — chiefly a custom api_token_env. A
 // missing or unparsable config yields the zero Config, whose defaults are sound.
 func configuredConfig() Config {
 	var cfg Config
-	c, err := tsync.LoadConfig(tsync.ConfigPath())
+	c, err := reconcile.LoadConfig(reconcile.ConfigPath())
 	if err != nil {
 		return cfg
 	}
@@ -258,7 +258,7 @@ func configuredConfig() Config {
 // SaveToken writes the bearer token into the daemon's env file, under the
 // variable name the gateway config points at.
 //
-// It goes to sync.env rather than sync.json for the same reason every other
+// It goes to credentials.env rather than config.yaml for the same reason every other
 // secret in this program does: the config file is the thing people paste into
 // support tickets.
 func SaveToken(cfg Config, token string) (string, error) {
@@ -266,8 +266,8 @@ func SaveToken(cfg Config, token string) (string, error) {
 	if name == "" {
 		name = defaultTokenEnv
 	}
-	path := tsync.EnvPath()
-	if err := tsync.SetEnvVar(path, name, token); err != nil {
+	path := reconcile.EnvPath()
+	if err := reconcile.SetEnvVar(path, name, token); err != nil {
 		return "", err
 	}
 	return path, nil

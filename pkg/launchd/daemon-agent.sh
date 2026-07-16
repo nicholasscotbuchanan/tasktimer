@@ -4,29 +4,29 @@
 #
 # This ships inside the app bundle, at:
 #
-#   /Applications/TaskTimer.app/Contents/Resources/sync-agent.sh
+#   /Applications/TaskTimer.app/Contents/Resources/daemon-agent.sh
 #
 # Usage:
-#   sync-agent.sh install     start the daemon now and at every login
-#   sync-agent.sh uninstall   stop it and remove the agent
-#   sync-agent.sh status      is it loaded, and is it running?
+#   daemon-agent.sh install     start the daemon now and at every login
+#   daemon-agent.sh uninstall   stop it and remove the agent
+#   daemon-agent.sh status      is it loaded, and is it running?
 #
 # It resolves the daemon's path from its own location rather than assuming
 # /Applications, so a bundle run from ~/Applications or a mounted DMG still
 # installs an agent that points at the right binary.
 set -euo pipefail
 
-LABEL="com.tasktimer.sync"
+LABEL="com.tasktimer.daemon"
 AGENT_DIR="${HOME}/Library/LaunchAgents"
 AGENT="${AGENT_DIR}/${LABEL}.plist"
 
-# Contents/Resources/sync-agent.sh -> Contents/MacOS/TaskTimer-Sync
+# Contents/Resources/daemon-agent.sh -> Contents/MacOS/TaskTimer-Daemon
 RESOURCES="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EXEC="$(cd "${RESOURCES}/../MacOS" && pwd)/TaskTimer-Sync"
+EXEC="$(cd "${RESOURCES}/../MacOS" && pwd)/TaskTimer-Daemon"
 TEMPLATE="${RESOURCES}/${LABEL}.plist"
 
 LOG_DIR="${HOME}/Library/Logs"
-LOG="${LOG_DIR}/task-timer-sync.log"
+LOG="${LOG_DIR}/task-timer-daemon.log"
 
 # launchctl's modern verbs need the user's GUI domain.
 DOMAIN="gui/$(id -u)"
@@ -57,8 +57,8 @@ install_agent() {
   echo "log:      ${LOG}"
   echo
   echo "The daemon does nothing until a provider is enabled. Open Task Timer's"
-  echo "Settings page, or edit sync.json, then put your API token in:"
-  echo "  \$(the data directory)/sync.env    e.g. TASK_TIMER_GATEWAY_TOKEN=..."
+  echo "Settings page, or edit config.yaml, then put your API token in:"
+  echo "  \$(the data directory)/credentials.env    e.g. TASK_TIMER_GATEWAY_TOKEN=..."
 }
 
 uninstall_agent() {

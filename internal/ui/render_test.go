@@ -142,7 +142,7 @@ func seedStore(t *testing.T) *task.Store {
 	t.Helper()
 
 	// The Settings and About pages read task.DataDir() directly, and
-	// sync.LoadConfig *writes* an example config when none exists. Without this
+	// reconcile.LoadConfig *writes* an example config when none exists. Without this
 	// the test would reach into the developer's real application-support
 	// directory and leave a file behind.
 	dir := t.TempDir()
@@ -159,14 +159,14 @@ func seedStore(t *testing.T) *task.Store {
 		{Name: "Test", Start: now.Add(-2 * time.Hour), End: now.Add(-2 * time.Hour).Add(5 * time.Second),
 			Duration: 5 * time.Second, AssignedBy: "nbuchanan", Source: task.SourceUserAdded,
 			Status: task.StatusLogged},
-		{Name: "ENG-1421: Rework the sync engine's retry backoff",
+		{Name: "ENG-1421: Rework the reconcile engine's retry backoff",
 			Start: now.Add(-5 * time.Hour), End: now.Add(-4 * time.Hour),
 			Duration: time.Hour, AssignedBy: "a.mcallister", Source: "gateway",
-			Status: task.StatusSyncedProgress, ForeignKey: "ENG-1421"},
+			Status: task.StatusPushed, ForeignKey: "ENG-1421"},
 		{Name: "ENG-1402: Ship the DMG signing pipeline",
 			Start: now.AddDate(0, 0, -1), End: now.AddDate(0, 0, -1).Add(2 * time.Hour),
 			Duration: 2 * time.Hour, AssignedBy: "r.okafor", Source: "gateway",
-			Status: task.StatusSyncedComplete, ForeignKey: "ENG-1402",
+			Status: task.StatusPushedComplete, ForeignKey: "ENG-1402",
 			Comment: task.CommentCompleted},
 	}
 	for _, s := range sessions {
@@ -176,7 +176,7 @@ func seedStore(t *testing.T) *task.Store {
 	}
 
 	if err := store.UpsertRemote(task.Remote{
-		Provider: "gateway", Key: "ENG-1421", Title: "Rework the sync engine's retry backoff",
+		Provider: "gateway", Key: "ENG-1421", Title: "Rework the reconcile engine's retry backoff",
 		URL: "https://example.atlassian.net/browse/ENG-1421", AssignedBy: "a.mcallister",
 		UpdatedAt: now,
 	}); err != nil {

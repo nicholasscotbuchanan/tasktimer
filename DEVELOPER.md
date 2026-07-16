@@ -2,7 +2,7 @@
 
 This is the guide for working *on* Task Timer, rather than using it. If you only
 want to build and run the app, the [README](README.md) is the place to start;
-come here when you want to understand how the pieces fit, add a sync provider, or
+come here when you want to understand how the pieces fit, add a provider, or
 change the interface with confidence.
 
 **Task Timer Server** — the backend that talks to Jira — is a separate program
@@ -24,7 +24,7 @@ this guide covers Task Timer, the desktop client, and its background daemon.
 - [Testing](#testing)
 - [Build, format, lint](#build-format-lint)
 - [Conventions worth knowing](#conventions-worth-knowing)
-- [Adding a sync provider, end to end](#adding-a-sync-provider-end-to-end)
+- [Adding a provider, end to end](#adding-a-provider-end-to-end)
 
 ---
 
@@ -35,7 +35,7 @@ separately:
 
 | Module | Path | What it is |
 | --- | --- | --- |
-| `task-timer-app` | repository root | The desktop client and the sync daemon. Requires cgo (SQLite + Fyne). |
+| `task-timer-app` | repository root | The desktop client and the daemon. Requires cgo (SQLite + Fyne). |
 | `task-timer-server` | `server/` | Task Timer Server. Pure Go, no cgo, cross-compiles anywhere. |
 
 They are deliberately decoupled. The client and the server share **no Go code** —
@@ -55,7 +55,7 @@ The root module builds two programs that share one SQLite database:
 | Program | Entry point | Role |
 | --- | --- | --- |
 | `task-timer` | [cmd/task-timer/main.go](cmd/task-timer/main.go) | The GUI: timer, task table, reports, settings. |
-| `task-timer-sync` | [cmd/task-timer-sync/main.go](cmd/task-timer-sync/main.go) | A headless daemon that pulls remote tasks and pushes logged time. |
+| `task-timer-daemon` | [cmd/task-timer-daemon/main.go](cmd/task-timer-daemon/main.go) | A headless daemon that pulls remote tasks and pushes logged time. |
 
 Both `main` packages are **wiring only** — they open the store, blank-import the
 compiled-in providers, and hand off. All behaviour lives in `internal/`. The two
@@ -63,7 +63,7 @@ compiled-in providers, and hand off. All behaviour lives in `internal/`. The two
 (see [The provider plugin system](#the-provider-plugin-system)).
 
 The GUI writes sessions to the database and never touches the network on its own.
-Nothing is pulled or pushed until `task-timer-sync` runs. That separation is the
+Nothing is pulled or pushed until `task-timer-daemon` runs. That separation is the
 whole reason there are two binaries: the timer stays useful and entirely local
 even when the daemon is not installed or the backend is down.
 
@@ -74,18 +74,18 @@ even when the daemon is not installed or the backend is down.
 ```text
 cmd/
   task-timer/          GUI entry point (wiring)
-  task-timer-sync/     daemon entry point (wiring)
+  task-timer-daemon/     daemon entry point (wiring)
 
 internal/
   task/                domain model + SQLite store + reporting aggregation
     task.go            Task and Remote types, the domain vocabulary
     store.go           schema, migrations, every query
     stats.go           pure aggregation for the Reports page
-  sync/                the sync engine and the provider contract
+  reconcile/                the reconcile engine and the provider contract
     engine.go          the pull → push → complete cycle
     provider.go        the Provider interface and the registry
-    config.go          sync.json load/save (atomic writes)
-    env.go             sync.env load/save (the token file)
+    config.go          config.yaml load/save (atomic writes)
+    env.go             credentials.env load/save (the token file)
     connect.go         the interactive sign-in dispatch
     providers/
       gateway/         talks to Task Timer Server (bearer token + PKCE)
@@ -126,19 +126,19 @@ table with status `Work Logged`. If the task name matches a remote task that was
 pulled earlier, the row also carries that task's `foreign_key` and `foreign_url`,
 which is what later lets the daemon push time against the right upstream issue.
 
-**2. The daemon pulls remote tasks (sync).**
+**2. The daemon pulls remote tasks (reconcile).**
 `Engine.pull` asks each enabled provider for tasks changed since the last cursor
-and upserts them into `remote_tasks` ([internal/sync/engine.go](internal/sync/engine.go)).
+and upserts them into `remote_tasks` ([internal/reconcile/engine.go](internal/reconcile/engine.go)).
 The GUI reads that table to populate the task picker, so assigned issues show up
 as timer targets.
 
-**3. The daemon pushes logged time (sync).**
+**3. The daemon pushes logged time (reconcile).**
 `Engine.push` finds sessions in `Work Logged` state that have a `foreign_key`,
 calls `Provider.Push`, and stamps the returned work-log id onto the row. That
 stamp is what makes pushing idempotent: a session with a signature is never pushed
 again, even across daemon restarts.
 
-**4. The daemon reports completion (sync).**
+**4. The daemon reports completion (reconcile).**
 If the user marked a task done, `Engine.complete` calls `Provider.Complete` and
 records that the provider was told.
 
@@ -155,7 +155,7 @@ because a backend outage should not take down a local stopwatch.
                                              │  │ pull → push → complete
                                     reads/   │  ▼
                                    writes ┌──────────────────┐
-                                          │ task-timer-sync   │
+                                          │ task-timer-daemon   │
                                           │    (daemon)       │
                                           └──────────────────┘
                                                    │  Provider.Pull/Push/Complete
@@ -173,9 +173,10 @@ One SQLite file, opened by both binaries at once, defined in one place:
 [internal/task/store.go](internal/task/store.go).
 
 - **`tasks`** — one row per timed session. The interesting columns are
-  `task_status` (the lifecycle: `Work Logged` → `Syncing` → `Synchronized
-  Progress`/`Complete`), `foreign_key`/`foreign_url` (the upstream issue), and
-  `timer_sync_signature` (the provider's work-log id — the idempotency anchor).
+  `task_status` (the lifecycle: `Work Logged` → `Pushing` → `Pushed`/`Pushed —
+  Complete`), `foreign_key`/`foreign_url` (the upstream issue), and
+  `timer_sync_signature` (the provider's work-log id — the idempotency anchor;
+  the column keeps its legacy name for database compatibility).
 - **`remote_tasks`** — tasks pulled from providers, keyed by `(provider, key)`.
   These are timer *targets*, not sessions.
 - **`sync_state`** — one `last_pull` cursor per provider.
@@ -197,9 +198,9 @@ testable without a database.
 ## The provider plugin system
 
 This is the design centrepiece, and worth reading
-[internal/sync/provider.go](internal/sync/provider.go) in full.
+[internal/reconcile/provider.go](internal/reconcile/provider.go) in full.
 
-A sync backend is anything that satisfies `sync.Provider`:
+A backend is anything that satisfies `reconcile.Provider`:
 
 ```go
 type Provider interface {
@@ -211,7 +212,7 @@ type Provider interface {
 ```
 
 `Pull` and `Push` are independent capabilities. A read-only backend returns
-`sync.ErrUnsupported` from `Push` and `Complete`, and the engine skips that half
+`reconcile.ErrUnsupported` from `Push` and `Complete`, and the engine skips that half
 of the cycle rather than treating it as an error.
 
 Providers **register themselves** from `init()` and are pulled into a binary by a
@@ -219,7 +220,7 @@ blank import. The registry (`Register`, `Descriptors`, `Describe`) is what lets
 the rest of the system stay ignorant of any specific backend:
 
 - The daemon builds only the providers the config enables.
-- `sync.json`'s starter file is generated from the registry, so a new provider
+- `config.yaml`'s starter file is generated from the registry, so a new provider
   appears in it automatically.
 - **The Settings page renders a form for a provider it has never heard of**, by
   walking `Descriptors()` and reading each provider's declared `Fields`.
@@ -227,22 +228,22 @@ the rest of the system stay ignorant of any specific backend:
 That last point is the reason for the `Field` type. Without it, every new backend
 would mean editing the settings screen — and a plugin system whose host must be
 modified for each plugin is not a plugin system. `TestAppDoesNotDependOnAnyProvider`
-in [internal/sync/architecture_test.go](internal/sync/architecture_test.go) fails
+in [internal/reconcile/architecture_test.go](internal/reconcile/architecture_test.go) fails
 the build if `internal/ui`, the engine, or the store ever grows an import of a
 provider package.
 
 The two shipped providers:
 
-- **`gateway`** ([internal/sync/providers/gateway](internal/sync/providers/gateway)) —
-  the real one. Holds a bearer token, syncs through Task Timer Server, and
+- **`gateway`** ([internal/reconcile/providers/gateway](internal/reconcile/providers/gateway)) —
+  the real one. Holds a bearer token, reconciles through Task Timer Server, and
   implements the interactive `Connect` flow (loopback + PKCE, see
   [Secrets](#secrets-and-where-they-live)).
-- **`jsonfile`** ([internal/sync/providers/jsonfile](internal/sync/providers/jsonfile)) —
+- **`jsonfile`** ([internal/reconcile/providers/jsonfile](internal/reconcile/providers/jsonfile)) —
   reads task definitions from `<dir>/tasks/*.json` and writes work logs to
   `<dir>/worklogs/*.json`. No network, no credentials — it is how you exercise the
-  whole sync path in a test or a demo.
+  whole reconcile path in a test or a demo.
 
-[Adding a provider](#adding-a-sync-provider-end-to-end) walks through writing one.
+[Adding a provider](#adding-a-provider-end-to-end) walks through writing one.
 
 ---
 
@@ -255,7 +256,7 @@ The GUI is [Fyne](https://fyne.io/) v2. The whole interface lives in
   timer, the cached sessions and remote tasks, the window, and the page router.
   It runs the display ticker in a goroutine and marshals every UI mutation back
   onto Fyne's main thread. Pages ask the `App` to act (`App.Start`, `App.Stop`,
-  `App.Synchronize`); the `App` calls back into pages via small hooks
+  `App.Push`); the `App` calls back into pages via small hooks
   (`timerStarted`, `refresh`).
 - Each **page** is a struct with a `content fyne.CanvasObject` and a `refresh()`
   method. The router shows a page's content and calls `refresh()` on arrival, so a
@@ -280,19 +281,19 @@ It never holds a Jira credential — that lives on the server.
 
 Two files, both in the [data directory](README.md#where-your-data-lives):
 
-- **`sync.json`** — the provider config. No secret belongs here, because it is the
+- **`config.yaml`** — the provider config. No secret belongs here, because it is the
   file people paste into support tickets. Written atomically (temp file + rename,
   mode 0600) so a crash mid-save cannot leave a half-written config the daemon
-  refuses to parse ([internal/sync/config.go](internal/sync/config.go)).
-- **`sync.env`** — `KEY=VALUE` lines, mode 0600, where the bearer token actually
+  refuses to parse ([internal/reconcile/config.go](internal/reconcile/config.go)).
+- **`credentials.env`** — `KEY=VALUE` lines, mode 0600, where the bearer token actually
   lives under the variable named by `api_token_env`
-  ([internal/sync/env.go](internal/sync/env.go)). A daemon under launchd/systemd
+  ([internal/reconcile/env.go](internal/reconcile/env.go)). A daemon under launchd/systemd
   inherits none of your shell's exports, so the token must be on disk somewhere
   the daemon reads at startup — this is that somewhere. The loader logs variable
   *names* only, never values, and warns if the file is world-readable.
 
 The sign-in flow (`gateway.Connect`,
-[internal/sync/providers/gateway/connect.go](internal/sync/providers/gateway/connect.go))
+[internal/reconcile/providers/gateway/connect.go](internal/reconcile/providers/gateway/connect.go))
 is OAuth for a native app (RFC 8252): open a listener on `127.0.0.1:0`, send the
 browser to Task Timer Server, receive a one-time code on the loopback port, and trade it
 for the token over TLS proving possession of a PKCE verifier. The token
@@ -331,7 +332,7 @@ The screenshots in the README were produced exactly this way. It runs headless,
 so it works over SSH and in CI where no display exists.
 
 **The architecture test**
-([internal/sync/architecture_test.go](internal/sync/architecture_test.go)) walks
+([internal/reconcile/architecture_test.go](internal/reconcile/architecture_test.go)) walks
 the import graph and fails if the app, the engine, or the store depends on any
 provider package. It is the mechanical guarantee behind the plugin system: the
 first time someone shortcuts the registry and imports `gateway` directly from the
@@ -384,7 +385,7 @@ these constraints.
 - **Only `main` names a provider.** If you find yourself importing `gateway` from
   anywhere in `internal/ui`, stop — you are about to break the plugin system, and
   the architecture test will tell you so.
-- **Secrets go to `sync.env`, config goes to `sync.json`.** Nothing that would
+- **Secrets go to `credentials.env`, config goes to `config.yaml`.** Nothing that would
   hurt in a support ticket belongs in the config file.
 - **Config and token writes are atomic** (temp file + rename, mode 0600). Follow
   that pattern for anything else that must survive a crash mid-write.
@@ -398,35 +399,35 @@ these constraints.
 
 ---
 
-## Adding a sync provider, end to end
+## Adding a provider, end to end
 
 Say you want a `linear` provider for Linear issues.
 
-**1. Implement `sync.Provider`** in a new package under
-`internal/sync/providers/linear/`. Implement `Pull` and/or `Push`; return
-`sync.ErrUnsupported` from whichever half your backend cannot do.
+**1. Implement `reconcile.Provider`** in a new package under
+`internal/reconcile/providers/linear/`. Implement `Pull` and/or `Push`; return
+`reconcile.ErrUnsupported` from whichever half your backend cannot do.
 
 **2. Register it from `init()`, declaring your settings as `Fields`:**
 
 ```go
 func init() {
-    tsync.Register(tsync.Registration{
+    reconcile.Register(reconcile.Registration{
         Name:    "linear",
         Title:   "Linear",
         Summary: "Pull assigned Linear issues and push time back.",
-        New:     New, // func(json.RawMessage) (tsync.Provider, error)
-        Fields: []tsync.Field{
+        New:     New, // func(json.RawMessage) (reconcile.Provider, error)
+        Fields: []reconcile.Field{
             {
                 Key:     "api_key_env",
                 Label:   "API key variable",
                 Hint:    "The name of an environment variable holding the key.",
-                Kind:    tsync.KindText,
+                Kind:    reconcile.KindText,
                 Default: "LINEAR_API_KEY",
             },
             {
                 Key:     "push_time",
                 Label:   "Time tracking",
-                Kind:    tsync.KindBool,
+                Kind:    reconcile.KindBool,
                 Default: true,
             },
         },
@@ -435,17 +436,17 @@ func init() {
 ```
 
 **3. Add one blank import** to both
-[cmd/task-timer-sync/main.go](cmd/task-timer-sync/main.go) and
+[cmd/task-timer-daemon/main.go](cmd/task-timer-daemon/main.go) and
 [cmd/task-timer/main.go](cmd/task-timer/main.go):
 
 ```go
-_ "task-timer-app/internal/sync/providers/linear"
+_ "task-timer-app/internal/reconcile/providers/linear"
 ```
 
 That is the whole job. Because you declared `Fields`, you now get for free:
 
-- the provider listed by `task-timer-sync -providers`,
-- an entry in the starter `sync.json` with your defaults filled in,
+- the provider listed by `task-timer-daemon -providers`,
+- an entry in the starter `config.yaml` with your defaults filled in,
 - **a Settings form** — a card, an enable toggle, and the right control per field —
   with no change to `internal/ui`.
 

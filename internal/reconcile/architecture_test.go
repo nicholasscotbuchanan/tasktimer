@@ -1,4 +1,4 @@
-package sync_test
+package reconcile_test
 
 import (
 	"os/exec"
@@ -7,7 +7,7 @@ import (
 )
 
 // providerPrefix is the import path every backend lives under.
-const providerPrefix = "task-timer-app/internal/sync/providers/"
+const providerPrefix = "task-timer-app/internal/reconcile/providers/"
 
 // TestAppDoesNotDependOnAnyProvider is the guard on the plugin boundary.
 //
@@ -21,14 +21,14 @@ const providerPrefix = "task-timer-app/internal/sync/providers/"
 // Linear or GitHub Issues would require editing the app. A plugin system whose
 // host must be modified for each plugin is not a plugin system.
 //
-// The settings screen is instead built from sync.Descriptors(), so this test
-// asserts the dependency simply cannot come back. If it fails, the fix is not to
-// relax the test: it is to declare the settings as sync.Field values on the
-// provider, the way gateway and jsonfile do.
+// The settings screen is instead built from reconcile.Descriptors(), so this
+// test asserts the dependency simply cannot come back. If it fails, the fix is
+// not to relax the test: it is to declare the settings as reconcile.Field values
+// on the provider, the way gateway and jsonfile do.
 func TestAppDoesNotDependOnAnyProvider(t *testing.T) {
 	for _, pkg := range []string{
 		"task-timer-app/internal/ui",
-		"task-timer-app/internal/sync",
+		"task-timer-app/internal/reconcile",
 		"task-timer-app/internal/task",
 	} {
 		t.Run(pkg, func(t *testing.T) {
@@ -48,11 +48,11 @@ func TestAppDoesNotDependOnAnyProvider(t *testing.T) {
 
 // TestBinariesRegisterTheProviders is the other half: the composition roots must
 // actually link the backends in, or the registry is empty and the daemon can
-// sync nothing while the settings screen shows no providers at all.
+// reconcile nothing while the settings screen shows no providers at all.
 func TestBinariesRegisterTheProviders(t *testing.T) {
 	for _, bin := range []string{
 		"task-timer-app/cmd/task-timer",
-		"task-timer-app/cmd/task-timer-sync",
+		"task-timer-app/cmd/task-timer-daemon",
 	} {
 		t.Run(bin, func(t *testing.T) {
 			var found []string
@@ -62,7 +62,7 @@ func TestBinariesRegisterTheProviders(t *testing.T) {
 				}
 			}
 			if len(found) == 0 {
-				t.Errorf("%s links no sync providers, so its registry is empty", bin)
+				t.Errorf("%s links no providers, so its registry is empty", bin)
 			}
 		})
 	}

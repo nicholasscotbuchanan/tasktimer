@@ -22,7 +22,7 @@ import (
 //
 // Each column carries a floor as well as a weight. The floors are sized to the
 // widest thing the column can actually hold — the longest status is
-// "Synchronized Complete", the widest action is the "Complete" button — because
+// "Pushed — Complete", the widest action is the "Complete" button — because
 // neither a pill nor a button can ellipsise its way out of a column that is too
 // narrow. Only Task, Assigned By and Comment truncate, so only they are allowed
 // to be squeezed.

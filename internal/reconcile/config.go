@@ -1,4 +1,4 @@
-package sync
+package reconcile
 
 import (
 	"encoding/json"
@@ -9,11 +9,15 @@ import (
 	"path/filepath"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"task-timer-app/internal/task"
 )
 
-// ConfigFileName is the config file's name inside the data directory.
-const ConfigFileName = "sync.json"
+// ConfigFileName is the config file's name inside the data directory. It is YAML:
+// the whole configuration surface lives in a file a person edits by hand, with
+// nothing compiled in.
+const ConfigFileName = "config.yaml"
 
 // DefaultPollInterval is used when the config omits one.
 const DefaultPollInterval = 60 * time.Second
@@ -24,9 +28,14 @@ const DefaultPollInterval = 60 * time.Second
 // two in step.
 const DefaultPollIntervalText = "60s"
 
-// Config is the sync daemon's on-disk configuration.
+// Config is the daemon's on-disk configuration.
+//
+// In memory a provider's Settings stay an opaque json.RawMessage — that is what
+// lets a key the settings form does not know about survive a save untouched. The
+// on-disk form is YAML; the two are bridged at the file boundary (see fileConfig)
+// so nothing above this file has to care what the file format is.
 type Config struct {
-	// PollInterval is how often the engine runs a full sync cycle, as a Go
+	// PollInterval is how often the engine runs a full reconcile cycle, as a Go
 	// duration string such as "60s" or "5m".
 	PollInterval string `json:"poll_interval"`
 	// Providers lists the backends to run. Order is not significant.
@@ -44,6 +53,21 @@ type ProviderConfig struct {
 	Settings json.RawMessage `json:"settings"`
 }
 
+// fileConfig mirrors Config for YAML, differing only in that a provider's
+// settings are a plain map rather than opaque bytes — YAML has no equivalent of
+// json.RawMessage. Conversion to and from Config happens in load/save, so the
+// in-memory model stays byte-opaque while the file stays human-editable YAML.
+type fileConfig struct {
+	PollInterval string         `yaml:"poll_interval"`
+	Providers    []fileProvider `yaml:"providers"`
+}
+
+type fileProvider struct {
+	Name     string         `yaml:"name"`
+	Enabled  bool           `yaml:"enabled"`
+	Settings map[string]any `yaml:"settings"`
+}
+
 // Interval returns the configured poll interval, falling back to the default.
 func (c Config) Interval() (time.Duration, error) {
 	if c.PollInterval == "" {
@@ -59,7 +83,7 @@ func (c Config) Interval() (time.Duration, error) {
 	return d, nil
 }
 
-// ConfigPath returns the location of the sync config file.
+// ConfigPath returns the location of the config file.
 func ConfigPath() string {
 	return filepath.Join(task.DataDir(), ConfigFileName)
 }
@@ -81,14 +105,54 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("reading %s: %w", path, err)
 	}
 
-	var cfg Config
-	if err := json.Unmarshal(data, &cfg); err != nil {
+	var fc fileConfig
+	if err := yaml.Unmarshal(data, &fc); err != nil {
 		return Config{}, fmt.Errorf("parsing %s: %w", path, err)
+	}
+
+	cfg, err := fc.toConfig()
+	if err != nil {
+		return Config{}, fmt.Errorf("in %s: %w", path, err)
 	}
 	if _, err := cfg.Interval(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// toConfig converts the YAML-facing form into the byte-opaque in-memory Config,
+// re-encoding each provider's settings map as the json.RawMessage the rest of the
+// program expects.
+func (fc fileConfig) toConfig() (Config, error) {
+	cfg := Config{PollInterval: fc.PollInterval}
+	for _, fp := range fc.Providers {
+		pc := ProviderConfig{Name: fp.Name, Enabled: fp.Enabled}
+		if len(fp.Settings) > 0 {
+			raw, err := json.Marshal(fp.Settings)
+			if err != nil {
+				return Config{}, fmt.Errorf("provider %q settings: %w", fp.Name, err)
+			}
+			pc.Settings = raw
+		}
+		cfg.Providers = append(cfg.Providers, pc)
+	}
+	return cfg, nil
+}
+
+// toFileConfig is the reverse: it decodes each opaque settings block into a map
+// so the whole thing can be written as readable YAML.
+func (c Config) toFileConfig() (fileConfig, error) {
+	fc := fileConfig{PollInterval: c.PollInterval}
+	for _, pc := range c.Providers {
+		fp := fileProvider{Name: pc.Name, Enabled: pc.Enabled, Settings: map[string]any{}}
+		if len(pc.Settings) > 0 {
+			if err := json.Unmarshal(pc.Settings, &fp.Settings); err != nil {
+				return fileConfig{}, fmt.Errorf("provider %q settings: %w", pc.Name, err)
+			}
+		}
+		fc.Providers = append(fc.Providers, fp)
+	}
+	return fc, nil
 }
 
 // exampleConfig is the starter file written on first run: every compiled-in
@@ -128,11 +192,10 @@ func SaveConfig(path string, cfg Config) error {
 		return err
 	}
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := marshalConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("encoding config: %w", err)
+		return err
 	}
-	data = append(data, '\n')
 
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -141,7 +204,7 @@ func SaveConfig(path string, cfg Config) error {
 
 	// Created in the target's directory so the rename is same-filesystem and
 	// therefore atomic.
-	tmp, err := os.CreateTemp(dir, ".sync-*.json")
+	tmp, err := os.CreateTemp(dir, ".config-*.yaml")
 	if err != nil {
 		return fmt.Errorf("creating temporary config: %w", err)
 	}
@@ -171,11 +234,10 @@ func writeExample(path string, cfg Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	data, err := marshalConfig(cfg)
 	if err != nil {
-		return fmt.Errorf("encoding example config: %w", err)
+		return err
 	}
-	data = append(data, '\n')
 
 	// 0600: the file is where an API token would go if the user chooses to
 	// inline one rather than use api_token_env.
@@ -183,4 +245,22 @@ func writeExample(path string, cfg Config) error {
 		return fmt.Errorf("writing example config to %s: %w", path, err)
 	}
 	return nil
+}
+
+// marshalConfig renders a Config as the YAML written to disk, with a short header
+// comment so the file explains itself to whoever opens it next.
+func marshalConfig(cfg Config) ([]byte, error) {
+	fc, err := cfg.toFileConfig()
+	if err != nil {
+		return nil, err
+	}
+	body, err := yaml.Marshal(fc)
+	if err != nil {
+		return nil, fmt.Errorf("encoding config: %w", err)
+	}
+	header := "# Task Timer configuration.\n" +
+		"# Enable a provider by setting its `enabled` to true and filling in its\n" +
+		"# settings. Secrets (bearer tokens) do not belong here — they live in\n" +
+		"# credentials.env beside this file. Keys not shown here are preserved.\n"
+	return append([]byte(header), body...), nil
 }

@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 	"task-timer-app/internal/task"
 )
 
@@ -36,7 +36,7 @@ const ProviderName = "gateway"
 
 const (
 	// defaultTokenEnv is the environment variable the bearer token is read from.
-	// It lives in the daemon's sync.env, not in sync.json: a token in a config
+	// It lives in the daemon's credentials.env, not in config.yaml: a token in a config
 	// file is a token in a backup, a screen share, and a support ticket.
 	defaultTokenEnv = "TASK_TIMER_GATEWAY_TOKEN"
 	// defaultTimeout bounds a single HTTP request.
@@ -45,12 +45,12 @@ const (
 	maxErrBody = 512
 )
 
-// Config is the provider's block of the sync config file.
+// Config is the provider's block of the config file.
 type Config struct {
 	// BaseURL is the gateway's root, e.g. "https://tasktimer.corp.example.com".
 	BaseURL string `json:"base_url"`
 	// APITokenEnv names an environment variable holding the bearer token. The
-	// Connect flow writes it to sync.env under this name.
+	// Connect flow writes it to credentials.env under this name.
 	APITokenEnv string `json:"api_token_env"`
 	// APIToken is an inline token, for anyone who hand-edits the config. Prefer
 	// APITokenEnv.
@@ -68,59 +68,29 @@ type Provider struct {
 	client *http.Client
 }
 
-var _ tsync.Provider = (*Provider)(nil)
+var _ reconcile.Provider = (*Provider)(nil)
 
 func init() {
-	tsync.Register(tsync.Registration{
+	// The settings schema (base_url, api_token_env, complete_remote_tasks) is
+	// declared in providers.yaml, not here — see package reconcile. The token
+	// itself is deliberately not among those fields: only the *name* of the
+	// environment variable holding it is offered on screen, because a token in a
+	// text field is a token in a screenshot. This registration is behaviour only.
+	reconcile.Register(reconcile.Registration{
 		Name:     ProviderName,
 		Title:    "Task Timer Gateway",
-		Summary:  "Reach your task tracker through the Task Timer backend; only a bearer token is held here.",
+		Summary:  "Reach your task tracker through Task Timer Server; only a bearer token is held here.",
 		New:      New,
-		Fields:   Fields(),
 		URLField: "base_url",
 		Connect:  connect,
 		HasToken: hasToken,
 	})
 }
 
-// Fields declares the settings a user may edit, so the desktop app can render a
-// form for this backend without importing it.
-//
-// The token itself is deliberately absent: only the
-// *name* of the environment variable holding it is offered on screen. A token in
-// a text field is a token in a screenshot.
-func Fields() []tsync.Field {
-	return []tsync.Field{
-		{
-			Key:         "base_url",
-			Label:       "Gateway URL",
-			Hint:        "The Task Timer backend this client synchronises through.",
-			Kind:        tsync.KindText,
-			Placeholder: "https://tasktimer.example.com",
-			Default:     "",
-		},
-		{
-			Key:         "api_token_env",
-			Label:       "Token variable",
-			Hint:        "The variable holding the bearer token; Log in writes it.",
-			Kind:        tsync.KindText,
-			Placeholder: defaultTokenEnv,
-			Default:     defaultTokenEnv,
-		},
-		{
-			Key:     "complete_remote_tasks",
-			Label:   "Completion",
-			Hint:    "Let Complete close the remote issue. The gateway must also allow it.",
-			Kind:    tsync.KindBool,
-			Default: false,
-		},
-	}
-}
-
-// New is the sync.Factory for the gateway. It validates the config and resolves
+// New is the reconcile.Factory for the gateway. It validates the config and resolves
 // the token up front, so a misconfigured provider fails at daemon start with a
-// clear message rather than on the first sync cycle with an opaque 401.
-func New(raw json.RawMessage) (tsync.Provider, error) {
+// clear message rather than on the first reconcile cycle with an opaque 401.
+func New(raw json.RawMessage) (reconcile.Provider, error) {
 	var cfg Config
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &cfg); err != nil {
@@ -166,8 +136,8 @@ func resolveToken(cfg Config) (string, error) {
 				return cfg.APIToken, nil
 			}
 			return "", fmt.Errorf(
-				"gateway: no bearer token. %s is not set. Run 'task-timer-sync -connect' "+
-					"to sign in to the gateway; it writes the token to the daemon's sync.env.",
+				"gateway: no bearer token. %s is not set. Run 'task-timer-daemon -connect' "+
+					"to sign in to the gateway; it writes the token to the daemon's credentials.env.",
 				name)
 		}
 		return token, nil
@@ -175,7 +145,7 @@ func resolveToken(cfg Config) (string, error) {
 	return cfg.APIToken, nil
 }
 
-// Name implements sync.Provider.
+// Name implements reconcile.Provider.
 func (p *Provider) Name() string { return ProviderName }
 
 // ---------------------------------------------------------------------------
@@ -259,8 +229,8 @@ type worklogResponse struct {
 }
 
 // Push sends a completed session to the gateway and returns the upstream work-log
-// id, which the engine persists as the session's sync signature.
-func (p *Provider) Push(ctx context.Context, wl tsync.WorkLog) (string, error) {
+// id, which the engine persists as the session's push signature.
+func (p *Provider) Push(ctx context.Context, wl reconcile.WorkLog) (string, error) {
 	if strings.TrimSpace(wl.Key) == "" {
 		return "", errors.New("gateway: cannot push a work log without a task key")
 	}
@@ -296,7 +266,7 @@ func (p *Provider) Push(ctx context.Context, wl tsync.WorkLog) (string, error) {
 // Start time carries nanosecond precision, so two distinct sessions colliding
 // would require the same task to be started twice at the same instant for the
 // same duration.
-func idempotencyKey(wl tsync.WorkLog) string {
+func idempotencyKey(wl reconcile.WorkLog) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s\x00%d\x00%d\x00%s",
 		wl.Key, wl.Started.UTC().UnixNano(), int64(wl.Duration), wl.Author)
@@ -310,7 +280,7 @@ func idempotencyKey(wl tsync.WorkLog) string {
 // Complete asks the gateway to close the remote task.
 func (p *Provider) Complete(ctx context.Context, key string) error {
 	if !p.cfg.CompleteRemoteTasks {
-		return tsync.ErrUnsupported
+		return reconcile.ErrUnsupported
 	}
 	if strings.TrimSpace(key) == "" {
 		return errors.New("gateway: cannot complete a task without a key")
@@ -391,7 +361,7 @@ func apiError(method, endpoint string, resp *http.Response) error {
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return fmt.Errorf(
-			"the gateway rejected this client's token (401). Run 'task-timer-sync -connect' "+
+			"the gateway rejected this client's token (401). Run 'task-timer-daemon -connect' "+
 				"to sign in again. %s", detail)
 	}
 

@@ -1,4 +1,4 @@
-package sync
+package reconcile
 
 import (
 	"context"
@@ -97,7 +97,7 @@ func TestEnginePullStoresRemoteTasks(t *testing.T) {
 	}
 }
 
-// The first pull is a full sync; the second must be incremental, or every cycle
+// The first pull is a full pull; the second must be incremental, or every cycle
 // would re-fetch the user's entire backlog.
 func TestEngineAdvancesPullCursor(t *testing.T) {
 	fake := &fakeProvider{name: "fake"}
@@ -110,7 +110,7 @@ func TestEngineAdvancesPullCursor(t *testing.T) {
 		t.Fatalf("provider pulled %d times, want 2", len(fake.pulls))
 	}
 	if !fake.pulls[0].IsZero() {
-		t.Errorf("first pull since = %v, want the zero time (full sync)", fake.pulls[0])
+		t.Errorf("first pull since = %v, want the zero time (full pull)", fake.pulls[0])
 	}
 	if fake.pulls[1].IsZero() {
 		t.Error("second pull since = zero time; the cursor was never advanced")
@@ -141,11 +141,11 @@ func TestEnginePushesSessionsOnceOnly(t *testing.T) {
 	// A cycle before the user has asked for anything must push nothing at all.
 	engine.RunOnce(context.Background())
 	if len(fake.pushed) != 0 {
-		t.Fatalf("the engine pushed %d session(s) before Synchronize was pressed", len(fake.pushed))
+		t.Fatalf("the engine pushed %d session(s) before Push was pressed", len(fake.pushed))
 	}
 
-	if _, err := store.RequestSync(); err != nil {
-		t.Fatalf("RequestSync: %v", err)
+	if _, err := store.RequestPush(); err != nil {
+		t.Fatalf("RequestPush: %v", err)
 	}
 
 	engine.RunOnce(context.Background())
@@ -164,7 +164,7 @@ func TestEnginePushesSessionsOnceOnly(t *testing.T) {
 }
 
 // A provider that fails must leave the session pushable, not stranded in
-// "Syncing" forever.
+// "Pushing" forever.
 func TestEngineRetriesAfterPushFailure(t *testing.T) {
 	fake := &fakeProvider{
 		name:    "fake",
@@ -182,8 +182,8 @@ func TestEngineRetriesAfterPushFailure(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if _, err := store.RequestSync(); err != nil {
-		t.Fatalf("RequestSync: %v", err)
+	if _, err := store.RequestPush(); err != nil {
+		t.Fatalf("RequestPush: %v", err)
 	}
 
 	engine.RunOnce(context.Background())
@@ -230,10 +230,10 @@ func TestEngineCompletesRemoteTasks(t *testing.T) {
 	if err := store.Complete(tasks[0].ID, tasks[0].Name); err != nil {
 		t.Fatalf("Complete: %v", err)
 	}
-	// The user presses Synchronize. Without this the engine finds nothing, which
+	// The user presses Push. Without this the engine finds nothing, which
 	// is the point of the flag.
-	if _, err := store.RequestSync(); err != nil {
-		t.Fatalf("RequestSync: %v", err)
+	if _, err := store.RequestPush(); err != nil {
+		t.Fatalf("RequestPush: %v", err)
 	}
 
 	engine.RunOnce(context.Background())
@@ -269,8 +269,8 @@ func TestEngineTreatsUnsupportedAsSkip(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if _, err := store.RequestSync(); err != nil {
-		t.Fatalf("RequestSync: %v", err)
+	if _, err := store.RequestPush(); err != nil {
+		t.Fatalf("RequestPush: %v", err)
 	}
 
 	engine.RunOnce(context.Background())
@@ -297,14 +297,14 @@ func TestRegistryRejectsUnknownProvider(t *testing.T) {
 }
 
 func TestLoadConfigWritesExampleOnFirstRun(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "sync.json")
+	path := filepath.Join(t.TempDir(), "config.yaml")
 
 	cfg, err := LoadConfig(path)
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
 
-	// A first run must be a no-op, not an accidental sync against a
+	// A first run must be a no-op, not an accidental push against a
 	// half-configured provider.
 	for _, p := range cfg.Providers {
 		if p.Enabled {

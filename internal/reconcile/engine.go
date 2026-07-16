@@ -1,4 +1,4 @@
-package sync
+package reconcile
 
 import (
 	"context"
@@ -10,10 +10,10 @@ import (
 	"task-timer-app/internal/task"
 )
 
-// Engine drives the sync cycle for every enabled provider.
+// Engine drives the reconcile cycle for every enabled provider.
 //
 // One cycle, per provider, is: pull remote tasks into the local store, push
-// unsynced work sessions upstream, then tell the provider about tasks the user
+// unpushed work sessions upstream, then tell the provider about tasks the user
 // completed locally. A provider that fails is logged and skipped; it does not
 // stop the other providers or kill the daemon, because a backend outage should
 // not take down a local timer.
@@ -53,7 +53,7 @@ func NewEngine(store *task.Store, cfg Config, logger *log.Logger) (*Engine, erro
 	return &Engine{store: store, providers: providers, logger: logger}, nil
 }
 
-// Run executes a sync cycle every interval until the context is cancelled. It
+// Run executes a reconcile cycle every interval until the context is cancelled. It
 // syncs once immediately rather than waiting out the first tick.
 func (e *Engine) Run(ctx context.Context, interval time.Duration) error {
 	ticker := time.NewTicker(interval)
@@ -71,20 +71,20 @@ func (e *Engine) Run(ctx context.Context, interval time.Duration) error {
 	}
 }
 
-// RunOnce performs a single sync cycle across all providers. Errors are logged
+// RunOnce performs a single reconcile cycle across all providers. Errors are logged
 // rather than returned: a cycle is best-effort, and the next one will retry.
 func (e *Engine) RunOnce(ctx context.Context) {
 	for _, p := range e.providers {
 		if ctx.Err() != nil {
 			return
 		}
-		if err := e.syncProvider(ctx, p); err != nil {
-			e.logger.Printf("provider %s: sync cycle failed: %v", p.Name(), err)
+		if err := e.reconcileProvider(ctx, p); err != nil {
+			e.logger.Printf("provider %s: reconcile cycle failed: %v", p.Name(), err)
 		}
 	}
 }
 
-func (e *Engine) syncProvider(ctx context.Context, p Provider) error {
+func (e *Engine) reconcileProvider(ctx context.Context, p Provider) error {
 	if err := e.pull(ctx, p); err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func (e *Engine) push(ctx context.Context, p Provider) error {
 			return ctx.Err()
 		}
 
-		if err := e.store.SetStatus(t.ID, task.StatusSyncing); err != nil {
+		if err := e.store.SetStatus(t.ID, task.StatusPushing); err != nil {
 			return err
 		}
 
@@ -153,7 +153,7 @@ func (e *Engine) push(ctx context.Context, p Provider) error {
 		})
 		if errors.Is(err, ErrUnsupported) {
 			// Roll the status back so a provider that gains push support later
-			// picks the session up instead of leaving it wedged in "Syncing".
+			// picks the session up instead of leaving it wedged in "Pushing".
 			if err := e.store.SetStatus(t.ID, task.StatusLogged); err != nil {
 				return err
 			}
@@ -167,13 +167,13 @@ func (e *Engine) push(ctx context.Context, p Provider) error {
 			continue
 		}
 
-		// Always SyncedProgress, even for a session whose task the user has
-		// already finished locally. SyncedComplete is the sentinel that
+		// Always Pushed, even for a session whose task the user has
+		// already finished locally. PushedComplete is the sentinel that
 		// PendingCompletions treats as "the provider has been told", and only
 		// complete() has the standing to claim it. Setting it here meant a
 		// pushed work log marked its own task complete without the provider
 		// ever being asked to close the issue — so the issue stayed open.
-		if err := e.store.MarkPushed(t.ID, signature, task.StatusSyncedProgress); err != nil {
+		if err := e.store.MarkPushed(t.ID, signature, task.StatusPushed); err != nil {
 			return err
 		}
 		e.logger.Printf("provider %s: pushed %s (%s) as %s", p.Name(), t.ForeignKey, t.Duration, signature)
@@ -202,7 +202,7 @@ func (e *Engine) complete(ctx context.Context, p Provider) error {
 			continue
 		}
 
-		if err := e.store.MarkCompletionSynced(p.Name(), t.ForeignKey); err != nil {
+		if err := e.store.MarkCompletionPushed(p.Name(), t.ForeignKey); err != nil {
 			return err
 		}
 		e.logger.Printf("provider %s: marked %s complete", p.Name(), t.ForeignKey)

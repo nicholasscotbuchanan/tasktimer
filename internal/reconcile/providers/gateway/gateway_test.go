@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	tsync "task-timer-app/internal/sync"
+	"task-timer-app/internal/reconcile"
 )
 
 // newProvider builds a provider pointed at a test server, with the token in the
@@ -108,7 +108,7 @@ func TestPushSendsTheSessionAndReturnsTheWorklogID(t *testing.T) {
 	defer srv.Close()
 
 	start := time.Date(2024, 3, 1, 9, 15, 0, 0, time.UTC)
-	got, err := newProvider(t, srv.URL).Push(context.Background(), tsync.WorkLog{
+	got, err := newProvider(t, srv.URL).Push(context.Background(), reconcile.WorkLog{
 		Key:      "ENG-1",
 		Started:  start,
 		Duration: 25 * time.Minute,
@@ -134,7 +134,7 @@ func TestPushSendsTheSessionAndReturnsTheWorklogID(t *testing.T) {
 // duplicate has to be identical across those attempts — which means it must be
 // derived from the session, not generated.
 func TestIdempotencyKeyIsStableForTheSameSession(t *testing.T) {
-	wl := tsync.WorkLog{
+	wl := reconcile.WorkLog{
 		Key:      "ENG-1",
 		Started:  time.Date(2024, 3, 1, 9, 15, 0, 0, time.UTC),
 		Duration: 25 * time.Minute,
@@ -163,7 +163,7 @@ func TestPushOmitsAnEmptyComment(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if _, err := newProvider(t, srv.URL).Push(context.Background(), tsync.WorkLog{
+	if _, err := newProvider(t, srv.URL).Push(context.Background(), reconcile.WorkLog{
 		Key: "ENG-1", Started: time.Now(), Duration: time.Minute,
 	}); err != nil {
 		t.Fatalf("Push: %v", err)
@@ -182,7 +182,7 @@ func TestCompleteIsOffUnlessEnabled(t *testing.T) {
 	}
 	// Closing an issue on a shared board is opt-in, so the default must be a skip
 	// rather than a write.
-	if err := p.Complete(context.Background(), "ENG-1"); err != tsync.ErrUnsupported {
+	if err := p.Complete(context.Background(), "ENG-1"); err != reconcile.ErrUnsupported {
 		t.Errorf("Complete = %v, want ErrUnsupported when complete_remote_tasks is false", err)
 	}
 }
@@ -231,7 +231,7 @@ func TestTheGatewaysExplanationSurvivesIntoTheError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := newProvider(t, srv.URL).Push(context.Background(), tsync.WorkLog{
+	_, err := newProvider(t, srv.URL).Push(context.Background(), reconcile.WorkLog{
 		Key: "ENG-1", Started: time.Now(), Duration: time.Minute,
 	})
 	if err == nil || !strings.Contains(err.Error(), "no permission on this board") {

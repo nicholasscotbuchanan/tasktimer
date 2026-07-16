@@ -25,7 +25,7 @@ import (
 const (
 	appID = "com.tasktimer.app"
 
-	// pollEvery is how often the table picks up work the sync daemon wrote
+	// pollEvery is how often the table picks up work the daemon wrote
 	// behind the app's back.
 	pollEvery = 5 * time.Second
 
@@ -175,7 +175,7 @@ func (a *App) build() {
 			content: a.taskList.content, refresh: a.taskList.refresh},
 		{title: "Reports", subtitle: "Where your hours actually went",
 			content: a.reports.content, refresh: a.reports.refresh},
-		{title: "Settings", subtitle: "Working day, sync providers, and data location",
+		{title: "Settings", subtitle: "Working day, providers, and data location",
 			content: a.settings.content, refresh: a.settings.refresh},
 		{title: "About", subtitle: "Version and build information",
 			content: a.about.content, refresh: a.about.refresh},
@@ -375,35 +375,35 @@ func (a *App) reload() {
 	a.updateSystemTray()
 }
 
-// queueSync marks every unsynced session as ready to go upstream.
+// queuePush marks every unpushed session as ready to go upstream.
 //
-// It does not push anything itself, and deliberately so: the sync thread owns
+// It does not push anything itself, and deliberately so: the reconcile loop owns
 // every conversation with the gateway, and a second pusher living in the UI
 // process would be a second thing racing for the same rows. This writes a flag;
 // the thread finds it on its next scan and does the work.
 //
-// Until this is pressed, nothing a user times leaves their machine. Synchronize
+// Until this is pressed, nothing a user times leaves their machine. Push
 // (see connect.go) is the button's actual entry point — it signs the machine in
 // to the backend first when that has not happened yet, then calls this.
-func (a *App) queueSync() {
-	n, err := a.store.RequestSync()
+func (a *App) queuePush() {
+	n, err := a.store.RequestPush()
 	if err != nil {
-		a.reportError("Requesting synchronization", err)
+		a.reportError("Requesting pushing", err)
 		return
 	}
 
 	if n == 0 {
-		dialog.ShowInformation("Nothing to synchronize",
+		dialog.ShowInformation("Nothing to push",
 			"Every finished session linked to a tracked task has already been sent.",
 			a.window)
 		return
 	}
 
-	// The rows are queued, not sent. Saying "synchronized" here would be a lie
+	// The rows are queued, not sent. Saying "pushed" here would be a lie
 	// the user finds out about later, when they go looking in their task tracker
 	// for time that the daemon has not pushed yet.
-	dialog.ShowInformation("Queued for synchronization",
-		fmt.Sprintf("%s queued. The sync service will send them to the gateway on its next pass.",
+	dialog.ShowInformation("Queued for pushing",
+		fmt.Sprintf("%s queued. The daemon will send them to the gateway on its next pass.",
 			plural(n, "session", "sessions")),
 		a.window)
 
@@ -415,7 +415,7 @@ func (a *App) queueSync() {
 func (a *App) reloadRemotes() {
 	remotes, err := a.store.OpenRemotes()
 	if err != nil {
-		a.reportError("Loading synced tasks", err)
+		a.reportError("Loading tracker tasks", err)
 		return
 	}
 
@@ -454,7 +454,7 @@ func (a *App) taskOptions() []string {
 	return options
 }
 
-// poll refreshes in the background so work synced by the daemon shows up
+// poll refreshes in the background so work written by the daemon shows up
 // without the user having to hit Refresh.
 func (a *App) poll() {
 	ticker := time.NewTicker(pollEvery)

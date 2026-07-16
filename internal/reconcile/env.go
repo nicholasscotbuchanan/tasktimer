@@ -1,4 +1,4 @@
-package sync
+package reconcile
 
 import (
 	"bufio"
@@ -13,9 +13,9 @@ import (
 )
 
 // EnvFileName is an optional file of environment variables, in the data
-// directory beside sync.json.
+// directory beside config.yaml.
 //
-// It exists because of the single most common way a working sync setup fails.
+// It exists because of the single most common way a working setup fails.
 // Providers deliberately take their secrets from the environment rather than
 // from the config file — a token in a config file is a token in a backup and a
 // screen share. But a daemon started by systemd or launchd does not inherit the
@@ -24,7 +24,7 @@ import (
 //
 // So the daemon reads its own environment file, and the service definitions
 // this project ships need no secrets in them at all.
-const EnvFileName = "sync.env"
+const EnvFileName = "credentials.env"
 
 // EnvPath returns the location of the environment file.
 func EnvPath() string {
@@ -135,7 +135,7 @@ func EnvNames(path string) ([]string, error) {
 // being group-readable, whatever the caller's umask happens to be.
 func SetEnvVar(path, key, value string) error {
 	if strings.TrimSpace(key) == "" {
-		return errors.New("sync: cannot write an env var with an empty name")
+		return errors.New("reconcile: cannot write an env var with an empty name")
 	}
 
 	var lines []string
