@@ -21,7 +21,7 @@ case "$PKG_ARCH" in
   *) echo "error: unsupported rpm arch $PKG_ARCH (want x86_64 or aarch64)" >&2; exit 1 ;;
 esac
 
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo 1.0.0)}"
 BUILD_DIR="${BUILD_DIR:-build}"
 ALLOW_MISSING_ICONS="${ALLOW_MISSING_ICONS:-0}"
 

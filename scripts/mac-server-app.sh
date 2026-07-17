@@ -27,7 +27,7 @@ BIN_NAME="task-timer-server"
 BUNDLE_ID="com.tasktimer.server"
 MIN_MACOS="11.0"
 
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo 1.0.0)}"
 GIT_COMMIT="${GIT_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 BUILD_DIR="${BUILD_DIR:-build}"
 

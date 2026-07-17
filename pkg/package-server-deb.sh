@@ -27,7 +27,7 @@ case "$PKG_ARCH" in
   *) echo "error: unsupported deb arch $PKG_ARCH (want amd64 or arm64)" >&2; exit 1 ;;
 esac
 
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo 1.0.0)}"
 BUILD_DIR="${BUILD_DIR:-build}"
 
 STAGING="${BUILD_DIR}/staging/server-deb-${PKG_ARCH}"

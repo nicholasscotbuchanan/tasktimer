@@ -15,7 +15,7 @@ cd "$REPO_ROOT"
 
 APP_NAME="TaskTimer"
 BUILD_DIR="${BUILD_DIR:-build}"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo 1.0.0)}"
 
 case "${1:-aarch64}" in
   x86_64)  GOARCH="amd64"; APP_OUT="${APP_NAME}-${VERSION}-x86_64" ;;

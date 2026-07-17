@@ -12,7 +12,9 @@
 # ---------------------------------------------------------------------------
 
 APP_NAME    := task-timer
-VERSION     := 1.0.0
+# Single source of truth: the top-level VERSION file. Every packaging script
+# defaults to reading the same file, so a release is bumped in exactly one place.
+VERSION     := $(shell cat VERSION 2>/dev/null || echo 1.0.0)
 GIT_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 BUILD_DIR   := build
@@ -157,7 +159,7 @@ lint:
 ## docker-build: cross-compile linux/arm64 + windows/{amd64,arm64} into build/bin
 docker-build: dirs
 	@if [ "$(DOCKER)" = "podman" ]; then podman system prune -f >/dev/null 2>&1 || true; fi
-	$(DOCKER) build --pull -f Dockerfile.build -t $(IMAGE_TAG) .
+	$(DOCKER) build --pull -f Dockerfile.build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -t $(IMAGE_TAG) .
 	$(DOCKER) run --rm -v $(ABS_BUILD)/bin:/out $(IMAGE_TAG)
 	@for a in arm64 amd64; do \
 		test -f $(BIN_DIR)/linux-$$a/task-timer || { echo "missing $(BIN_DIR)/linux-$$a/task-timer" >&2; exit 1; }; \
@@ -230,21 +232,21 @@ server-test:
 
 ## server-deb: build the gateway .deb for every arch into build/dist (build container)
 server-deb: dirs
-	$(DOCKER) build --pull -f Dockerfile.build -t $(IMAGE_TAG) .
+	$(DOCKER) build --pull -f Dockerfile.build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -t $(IMAGE_TAG) .
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) \
 		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(SERVER_DEB_ARCHES); do ./pkg/package-server-deb.sh "$$a"; done'
 
 ## server-rpm: build the gateway .rpm for every arch into build/dist (build container)
 server-rpm: dirs
-	$(DOCKER) build --pull -f Dockerfile.build -t $(IMAGE_TAG) .
+	$(DOCKER) build --pull -f Dockerfile.build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -t $(IMAGE_TAG) .
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) \
 		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(SERVER_RPM_ARCHES); do ./pkg/package-server-rpm.sh "$$a"; done'
 
 ## server-exe: build the gateway Windows installers (per arch) into build/dist (build container)
 server-exe: dirs
-	$(DOCKER) build --pull -f Dockerfile.build -t $(IMAGE_TAG) .
+	$(DOCKER) build --pull -f Dockerfile.build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -t $(IMAGE_TAG) .
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) -e ALLOW_MISSING_ICONS=$(ALLOW_MISSING_ICONS) \
 		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(EXE_ARCHES); do ./pkg/package-server-exe.sh "$$a"; done'
@@ -262,7 +264,7 @@ server-docker:
 
 ## server-package: the gateway's deb + rpm + Windows installers, every arch, in one container run
 server-package: dirs
-	$(DOCKER) build --pull -f Dockerfile.build -t $(IMAGE_TAG) .
+	$(DOCKER) build --pull -f Dockerfile.build --build-arg VERSION=$(VERSION) --build-arg GIT_COMMIT=$(GIT_COMMIT) -t $(IMAGE_TAG) .
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) -e ALLOW_MISSING_ICONS=$(ALLOW_MISSING_ICONS) \
 		$(IMAGE_TAG) /bin/sh -c 'set -eu; \

@@ -28,7 +28,7 @@ case "$GOARCH_IN" in
   *) echo "error: unsupported goarch $GOARCH_IN (want amd64 or arm64)" >&2; exit 1 ;;
 esac
 
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo 1.0.0)}"
 GIT_COMMIT="${GIT_COMMIT:-unknown}"
 
 if [ ! -f "${REPO_ROOT}/server/go.mod" ]; then
