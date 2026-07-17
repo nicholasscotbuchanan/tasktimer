@@ -1,10 +1,19 @@
 #!/usr/bin/env bash
 #
-# Assemble TaskTimer.app.
+# Assemble TaskTimer.app for one architecture.
 #
-# Scratch:  build/staging/macapp
-# Binaries: build/bin/darwin-<arch>/{TaskTimer,TaskTimer-Daemon}
-# Output:   build/dist/TaskTimer.app
+# Scratch:  build/staging/macapp-<goarch>
+# Binaries: build/bin/darwin-<goarch>/{TaskTimer,TaskTimer-Sync}
+# Output:   build/dist/TaskTimer-<version>-x86_64.app    (Intel/AMD)
+#           build/dist/TaskTimer-<version>-aarch64.app   (ARM)
+#
+# Usage: mac-app.sh [x86_64|aarch64]   (default: host arch)
+#
+# The public arch label is the uniform x86_64/aarch64; GOARCH (amd64/arm64) is
+# the Go spelling, used only for the bin/ path the compiler writes to.
+#
+# amd64 is cross-built on Apple Silicon with the stock toolchain: the Go tool
+# drives clang with -arch x86_64 automatically, so no extra flags are needed.
 #
 # Nothing is ever written to the repo root or to /tmp.
 set -euo pipefail
@@ -21,7 +30,6 @@ GIT_COMMIT="${GIT_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unkno
 BUILD_DIR="${BUILD_DIR:-build}"
 ALLOW_MISSING_ICONS="${ALLOW_MISSING_ICONS:-0}"
 
-STAGING="${BUILD_DIR}/staging/macapp"
 DIST_DIR="${BUILD_DIR}/dist"
 ICON_DIR="${BUILD_DIR}/icons"
 ICNS="${ICON_DIR}/${APP_NAME}.icns"
@@ -31,21 +39,35 @@ if [ "$(uname)" != "Darwin" ]; then
   exit 1
 fi
 
-case "$(uname -m)" in
-  arm64|aarch64) GOARCH="arm64" ;;
-  x86_64|amd64)  GOARCH="amd64" ;;
-  *) echo "error: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+# Arch to build: explicit arg wins, else the host arch.
+ARCH_ARG="${1:-}"
+if [ -z "$ARCH_ARG" ]; then
+  case "$(uname -m)" in
+    arm64|aarch64) ARCH_ARG="aarch64" ;;
+    x86_64|amd64)  ARCH_ARG="x86_64" ;;
+    *) echo "error: unsupported architecture $(uname -m)" >&2; exit 1 ;;
+  esac
+fi
+case "$ARCH_ARG" in
+  x86_64)  GOARCH="amd64"; APP_OUT="${APP_NAME}-${VERSION}-x86_64" ;;
+  aarch64) GOARCH="arm64"; APP_OUT="${APP_NAME}-${VERSION}-aarch64" ;;
+  *) echo "error: unsupported architecture $ARCH_ARG (want x86_64 or aarch64)" >&2; exit 1 ;;
 esac
 
 BIN_DIR="${BUILD_DIR}/bin/darwin-${GOARCH}"
+STAGING="${BUILD_DIR}/staging/macapp-${GOARCH}"
 
 # --- compile both binaries directly into build/bin (never the repo root) ----
 echo ">> building binaries into ${BIN_DIR}"
 mkdir -p "$BIN_DIR"
+# CGO_ENABLED=1 is explicit, not the default: cross-building (arm64 host ->
+# amd64 target, or vice versa) turns cgo OFF unless forced, and Fyne's OpenGL
+# bindings are cgo-gated, so a cgo-off build excludes every go-gl file. The Go
+# tool drives clang with the right -arch from GOARCH on its own.
 LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${GIT_COMMIT}"
-GOOS=darwin GOARCH="$GOARCH" go build -trimpath -ldflags "$LDFLAGS" \
+GOOS=darwin GOARCH="$GOARCH" CGO_ENABLED=1 go build -trimpath -ldflags "$LDFLAGS" \
   -o "${BIN_DIR}/${APP_NAME}" ./cmd/task-timer
-GOOS=darwin GOARCH="$GOARCH" go build -trimpath -ldflags "$LDFLAGS" \
+GOOS=darwin GOARCH="$GOARCH" CGO_ENABLED=1 go build -trimpath -ldflags "$LDFLAGS" \
   -o "${BIN_DIR}/${APP_NAME}-Sync" ./cmd/task-timer-daemon
 
 # --- icons ------------------------------------------------------------------
@@ -60,7 +82,7 @@ if [ ! -f "$ICNS" ]; then
 fi
 
 # --- assemble the bundle in staging ----------------------------------------
-BUNDLE="${STAGING}/${APP_NAME}.app"
+BUNDLE="${STAGING}/${APP_OUT}.app"
 CONTENTS="${BUNDLE}/Contents"
 MACOS_DIR="${CONTENTS}/MacOS"
 RESOURCES_DIR="${CONTENTS}/Resources"
@@ -129,7 +151,7 @@ EOF
 
 # --- publish the finished bundle -------------------------------------------
 mkdir -p "$DIST_DIR"
-rm -rf "${DIST_DIR}/${APP_NAME}.app"
-cp -R "$BUNDLE" "${DIST_DIR}/${APP_NAME}.app"
+rm -rf "${DIST_DIR}/${APP_OUT}.app"
+cp -R "$BUNDLE" "${DIST_DIR}/${APP_OUT}.app"
 
-echo ">> created $(cd "$DIST_DIR" && pwd)/${APP_NAME}.app"
+echo ">> created $(cd "$DIST_DIR" && pwd)/${APP_OUT}.app"

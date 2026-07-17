@@ -4,7 +4,7 @@
 ;   OUTFILE   absolute path of the installer to write (under build/dist)
 ;   STAGING   absolute path of build/staging/nsis-server/<arch>, holding payload
 ;   VERSION   version string
-;   ARCH      CPU the bundled .exe is built for: amd64 or arm64
+;   ARCH      CPU the bundled .exe is built for: x86_64 or aarch64
 ;   ICONFILE  absolute path of TaskTimer.ico (optional)
 ;
 ; This is the SERVER, not the desktop client. It installs one .exe and registers
@@ -31,7 +31,7 @@
   !define VERSION "1.0.0"
 !endif
 !ifndef ARCH
-  !error "ARCH must be passed with -DARCH=<amd64|arm64>"
+  !error "ARCH must be passed with -DARCH=<x86_64|aarch64>"
 !endif
 
 !define APP_NAME    "Task Timer Server"
@@ -82,9 +82,9 @@ Function .onInit
   SetShellVarContext all
 
   ${If} ${IsNativeARM64}
-    StrCpy $R0 "arm64"
+    StrCpy $R0 "aarch64"
   ${ElseIf} ${IsNativeAMD64}
-    StrCpy $R0 "amd64"
+    StrCpy $R0 "x86_64"
   ${Else}
     StrCpy $R0 "unsupported"
   ${EndIf}

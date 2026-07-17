@@ -1,7 +1,11 @@
-# Cross-compile container: linux/arm64 + windows/amd64 + windows/arm64.
+# Cross-compile container: linux/arm64 + linux/amd64 + windows/amd64 + windows/arm64.
 #
 # CGO is mandatory (Fyne needs X11/GL, go-sqlite3 needs a C compiler), so the
 # X11/GL dev packages and the mingw-w64 toolchain both stay.
+#
+# linux/amd64 is a real cross-compile, not emulation: the base is linux/arm64,
+# so amd64 is built with the x86_64-linux-gnu GCC (crossbuild-essential-amd64)
+# against the :amd64 multiarch X11/GL dev libs installed below.
 #
 # Two Windows toolchains, because Debian's mingw-w64 only targets x86: it has
 # no aarch64-w64-mingw32-*, so windows/arm64 cannot be built with it at all.
@@ -16,7 +20,10 @@
 # is 1.25, so the toolchain floor is higher than the client alone would need.
 FROM --platform=linux/arm64 golang:1.26-bookworm
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# amd64 multiarch: the x86_64-linux-gnu toolchain and the :amd64 X11/GL dev
+# libs are what let the arm64 base cross-compile the linux/amd64 client.
+RUN dpkg --add-architecture amd64 \
+ && apt-get update && apt-get install -y --no-install-recommends \
     git \
     pkg-config \
     libx11-dev \
@@ -29,8 +36,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1-mesa-dev \
     libegl-dev \
     libxi-dev \
+    libx11-dev:amd64 \
+    libxrandr-dev:amd64 \
+    libxcursor-dev:amd64 \
+    libxinerama-dev:amd64 \
+    libxxf86vm-dev:amd64 \
+    libxss-dev:amd64 \
+    libxkbcommon-dev:amd64 \
+    libgl1-mesa-dev:amd64 \
+    libegl-dev:amd64 \
+    libxi-dev:amd64 \
     gcc \
     g++ \
+    crossbuild-essential-amd64 \
     gcc-mingw-w64-x86-64 \
     g++-mingw-w64-x86-64 \
     mingw-w64 \
@@ -96,6 +114,14 @@ CMD ["/bin/sh", "-c", "set -eu; \
     go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-arm64/task-timer ./cmd/task-timer; \
   GOOS=linux GOARCH=arm64 CGO_ENABLED=1 CC=gcc CXX=g++ \
     go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-arm64/task-timer-daemon ./cmd/task-timer-daemon; \
+  echo '>> linux/amd64'; \
+  mkdir -p /out/linux-amd64; \
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc CXX=x86_64-linux-gnu-g++ \
+    PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig \
+    go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-amd64/task-timer ./cmd/task-timer; \
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC=x86_64-linux-gnu-gcc CXX=x86_64-linux-gnu-g++ \
+    PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig \
+    go build -trimpath -ldflags \"$LDFLAGS\" -o /out/linux-amd64/task-timer-daemon ./cmd/task-timer-daemon; \
   for target in amd64:x86_64-w64-mingw32-gcc:x86_64-w64-mingw32-g++ \
                 arm64:aarch64-w64-mingw32-clang:aarch64-w64-mingw32-clang++; do \
     arch=${target%%:*}; rest=${target#*:}; cc=${rest%%:*}; cxx=${rest#*:}; \

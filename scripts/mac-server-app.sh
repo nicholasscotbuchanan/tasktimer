@@ -14,7 +14,7 @@
 #
 # Scratch:  build/staging/mac-server-app
 # Binary:   build/bin/darwin-<arch>/task-timer-server   (CGO, -tags tray)
-# Output:   build/dist/TaskTimerServer.app
+# Output:   build/dist/TaskTimerServer-<version>.app
 #
 # Nothing is ever written to the repo root or to /tmp.
 set -euo pipefail
@@ -156,8 +156,11 @@ ${ICON_PLIST_ENTRY}
 EOF
 
 # --- publish the finished bundle -------------------------------------------
+# The dist artifact carries the version (uniform with every other package); the
+# bundle inside stays TaskTimerServer.app, so the installed app keeps that name.
+APP_OUT="${APP_NAME}-${VERSION}"
 mkdir -p "$DIST_DIR"
-rm -rf "${DIST_DIR}/${APP_NAME}.app"
-cp -R "$BUNDLE" "${DIST_DIR}/${APP_NAME}.app"
+rm -rf "${DIST_DIR}/${APP_OUT}.app"
+cp -R "$BUNDLE" "${DIST_DIR}/${APP_OUT}.app"
 
-echo ">> created $(cd "$DIST_DIR" && pwd)/${APP_NAME}.app"
+echo ">> created $(cd "$DIST_DIR" && pwd)/${APP_OUT}.app"

@@ -244,7 +244,7 @@ make help
 | `make lint` | Run `golangci-lint`, if it is installed. |
 | `make icons` | Regenerate every app icon from `internal/assets/icon.svg`. |
 | `make docker-build` | Cross-compile Linux and Windows binaries in a container. |
-| `make dmg` | Build `TaskTimer.dmg` (macOS host only). |
+| `make dmg-x86_64` / `make dmg-aarch64` | Build `TaskTimer-<version>-<arch>.dmg` (macOS host only). |
 | `make deb` / `make rpm` / `make exe` | Build a Linux or Windows installer (needs a container). |
 | `make package` | Every package this host can produce. |
 | `make release` | `test` + `vet` + `build` + `package`, then list the artifacts. |
@@ -545,10 +545,13 @@ Everything lands in `build/dist/`.
 Runs natively, no container needed:
 
 ```bash
-make dmg
+make dmg-x86_64    # Intel/AMD
+make dmg-aarch64   # Apple Silicon
 ```
 
-Produces `build/dist/TaskTimer.app` and `build/dist/TaskTimer.dmg`.
+Produces `build/dist/TaskTimer-<version>-<arch>.app` and `…-<arch>.dmg`, where
+`<arch>` is `x86_64` or `aarch64`. (Inside the disk image the bundle is just
+`TaskTimer.app`, so the installed app is always `/Applications/TaskTimer.app`.)
 
 > The bundle is **not code-signed or notarised**. On first launch macOS will refuse to open it; right-click the app and choose **Open**, then confirm. Signing requires an Apple Developer certificate and is out of scope here.
 
@@ -556,18 +559,20 @@ Produces `build/dist/TaskTimer.app` and `build/dist/TaskTimer.dmg`.
 
 You do not need a Linux or Windows machine. Both are cross-compiled inside a container image that carries the X11/GL headers and the two mingw toolchains, so this all works from macOS.
 
-> **Three targets.** `Dockerfile.build` pins the builder to `linux/arm64`, and it cross-compiles for exactly **`linux/arm64`**, **`windows/amd64`** and **`windows/arm64`**. That is why the Linux packages below come out as `arm64`/`aarch64`. There is still **no `linux/amd64` package target** — if you need `.deb`s for an Intel or AMD server, build them natively on such a machine with `make build`, or add an `amd64` stanza to `Dockerfile.build`.
+> **Four targets.** `Dockerfile.build` pins the builder to `linux/arm64` and cross-compiles for **`linux/amd64`**, **`linux/arm64`**, **`windows/amd64`** and **`windows/arm64`**. The Linux `amd64` slice is a real cross-compile, not emulation: the container installs the `x86_64-linux-gnu` toolchain and the `:amd64` X11/GL dev libs (Debian multiarch), and Go builds against them with `CC=x86_64-linux-gnu-gcc`.
 >
-> **Why two Windows toolchains.** Debian's `mingw-w64` only targets x86, so it cannot build `windows/arm64` at all. That target is built with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) (clang-based, and it does target aarch64), which the image downloads at build time; `windows/amd64` stays on GCC mingw. Cgo is mandatory here — Fyne and go-sqlite3 both need a C compiler — so a pure-Go `GOARCH=arm64` build is not an option.
+> **Arch naming.** Every artifact name uses **`x86_64`** (Intel/AMD) and **`aarch64`** (ARM) — rpm, the Windows installers, and the macOS app/dmg. The one exception is the **`.deb`**, whose `Architecture` field dpkg requires to be `amd64`/`arm64` (a deb tagged `x86_64` won't install), so the deb keeps its ecosystem's spelling. `GOARCH` (`amd64`/`arm64`) appears only in `build/bin/<goos>-<goarch>` paths.
+>
+> **Why two Windows toolchains.** Debian's `mingw-w64` only targets x86, so it cannot build `windows/arm64` at all. That target is built with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) (clang-based, and it does target aarch64), which the image downloads at build time; `windows/amd64` stays on GCC mingw. Cgo is mandatory here — Fyne and go-sqlite3 both need a C compiler — so a pure-Go build is not an option.
 
 ```bash
 make docker-build     # cross-compile the binaries
-make deb              # build/dist/task-timer_1.0.0_arm64.deb
-make rpm              # build/dist/task-timer-1.0.0-1.aarch64.rpm
-make exe              # build/dist/task-timer-installer-{amd64,arm64}.exe
+make deb              # build/dist/task-timer_1.0.0_{amd64,arm64}.deb
+make rpm              # build/dist/task-timer-1.0.0-1.{x86_64,aarch64}.rpm
+make exe              # build/dist/task-timer-installer-1.0.0-{x86_64,aarch64}.exe
 ```
 
-Windows ships **one installer per CPU**. Give people on Arm laptops (Snapdragon X, Surface Pro X) the `arm64` one; everyone else takes `amd64`. Each installer checks the machine's real CPU on startup and refuses to install onto one it cannot run on, so a mix-up is a clear error message rather than an app that installs and then won't launch.
+Windows ships **one installer per CPU**. Give people on Arm laptops (Snapdragon X, Surface Pro X) the `aarch64` one; everyone else takes `x86_64`. Each installer checks the machine's real CPU on startup and refuses to install onto one it cannot run on, so a mix-up is a clear error message rather than an app that installs and then won't launch.
 
 > **`windows/arm64` is built and linked, but not yet verified on real hardware.** Fyne draws through desktop OpenGL, and Windows on ARM has no guaranteed native OpenGL driver — depending on the machine it may need Microsoft's OpenGL/OpenCL Compatibility Pack, or fall back to a mapping layer. If the arm64 GUI fails to start on an Arm PC, that is the first thing to check; the `amd64` installer also runs on those machines under emulation and is the safe fallback. `task-timer-daemon.exe` has no GUI and is unaffected.
 
@@ -579,11 +584,16 @@ make docker-package
 
 The first run pulls a base image and installs a cross-compiler toolchain, so expect it to take several minutes. Subsequent runs are cached and fast.
 
-Install the results the usual way, on an **arm64** machine:
+Install the results the usual way — pick the file matching the target CPU:
 
 ```bash
-sudo dpkg -i build/dist/task-timer_1.0.0_arm64.deb     # Debian/Ubuntu
-sudo rpm -i build/dist/task-timer-1.0.0-1.aarch64.rpm  # Fedora/RHEL
+# Intel/AMD (x86_64)
+sudo dpkg -i build/dist/task-timer_1.0.0_amd64.deb        # Debian/Ubuntu
+sudo rpm -i build/dist/task-timer-1.0.0-1.x86_64.rpm      # Fedora/RHEL
+
+# ARM (aarch64)
+sudo dpkg -i build/dist/task-timer_1.0.0_arm64.deb        # Debian/Ubuntu
+sudo rpm -i build/dist/task-timer-1.0.0-1.aarch64.rpm     # Fedora/RHEL
 ```
 
 ### Everything at once
@@ -741,7 +751,7 @@ Completion is opt-in on both sides. The client's `complete_remote_tasks` default
 **Sessions shorter than a minute show as one minute upstream**
 Working as intended. One minute is the shortest work log the upstream tracker accepts, so shorter sessions are rounded up by the backend rather than dropped.
 
-**`make dmg` fails with `./scripts/mac-app.sh: Permission denied`**
+**`make dmg-aarch64` fails with `./scripts/mac-app.sh: Permission denied`**
 The build scripts have lost their executable bit — which happens if the source reached you as a `.zip` or `.tar` that did not preserve file modes. Restore it:
 
 ```bash

@@ -4,7 +4,7 @@
 ;   OUTFILE   absolute path of the installer to write (under build/dist)
 ;   STAGING   absolute path of build/staging/nsis/<arch>, holding the payload
 ;   VERSION   version string
-;   ARCH      CPU the bundled binaries are built for: amd64 or arm64
+;   ARCH      CPU the bundled binaries are built for: x86_64 or aarch64
 ;   ICONFILE  absolute path of TaskTimer.ico (optional)
 ;
 ; The .nsi never hardcodes a relative path such as ..\dist\... .
@@ -29,7 +29,7 @@
   !define VERSION "1.0.0"
 !endif
 !ifndef ARCH
-  !error "ARCH must be passed with -DARCH=<amd64|arm64>"
+  !error "ARCH must be passed with -DARCH=<x86_64|aarch64>"
 !endif
 
 !define APP_NAME    "Task Timer"
@@ -84,9 +84,9 @@ Function .onInit
   SetRegView 64
 
   ${If} ${IsNativeARM64}
-    StrCpy $R0 "arm64"
+    StrCpy $R0 "aarch64"
   ${ElseIf} ${IsNativeAMD64}
-    StrCpy $R0 "amd64"
+    StrCpy $R0 "x86_64"
   ${Else}
     StrCpy $R0 "unsupported"
   ${EndIf}

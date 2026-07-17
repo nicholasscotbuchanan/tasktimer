@@ -12,25 +12,29 @@
 #
 # Scratch: build/staging/nsis-server/<arch>   (never /tmp)
 # Input:   server/                            (the Go source)
-# Output:  build/dist/task-timer-server-installer-<arch>.exe
+# Output:  build/dist/task-timer-server-installer-<version>-<arch>.exe
 #
-# Usage: package-server-exe.sh [amd64|arm64]   (default: amd64)
+# Usage: package-server-exe.sh [x86_64|aarch64]   (default: x86_64)
+#
+# The public arch label is the uniform x86_64/aarch64; GOARCH (amd64/arm64) is
+# the Go spelling handed to build-server-exe.sh.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-ARCH="${1:-amd64}"
+ARCH="${1:-x86_64}"
 case "$ARCH" in
-  amd64|arm64) ;;
-  *) echo "error: unsupported arch '${ARCH}' (want amd64 or arm64)" >&2; exit 1 ;;
+  x86_64)  GOARCH="amd64" ;;
+  aarch64) GOARCH="arm64" ;;
+  *) echo "error: unsupported arch '${ARCH}' (want x86_64 or aarch64)" >&2; exit 1 ;;
 esac
-
-INSTALLER_NAME="task-timer-server-installer-${ARCH}.exe"
 
 VERSION="${VERSION:-1.0.0}"
 BUILD_DIR="${BUILD_DIR:-build}"
 ALLOW_MISSING_ICONS="${ALLOW_MISSING_ICONS:-0}"
+
+INSTALLER_NAME="task-timer-server-installer-${VERSION}-${ARCH}.exe"
 
 STAGING="${BUILD_DIR}/staging/nsis-server/${ARCH}"
 DIST_DIR="${BUILD_DIR}/dist"
@@ -47,7 +51,7 @@ rm -rf "$STAGING"
 mkdir -p "$STAGING" "$DIST_DIR"
 
 # --- the application (one static .exe) + the config template ----------------
-./pkg/build-server-exe.sh "$ARCH" "$STAGING"
+./pkg/build-server-exe.sh "$GOARCH" "$STAGING"
 install -m 0644 "server/config.example.toml" "${STAGING}/config.example.toml"
 
 NSIS_DEFS=()

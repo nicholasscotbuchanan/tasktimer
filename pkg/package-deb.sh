@@ -1,25 +1,31 @@
 #!/usr/bin/env bash
 #
-# Build the Debian package.
+# Build the Debian package, for one architecture.
 #
-# Scratch: build/staging/deb   (never /tmp)
-# Input:   build/bin/linux-arm64/{task-timer,task-timer-daemon}
+# Scratch: build/staging/deb-<arch>   (never /tmp)
+# Input:   build/bin/linux-<arch>/{task-timer,task-timer-daemon}
 #          build/icons/png/icon_<N>.png
-# Output:  build/dist/task-timer_<version>_arm64.deb
+# Output:  build/dist/task-timer_<version>_<arch>.deb
+#
+# Usage: package-deb.sh [amd64|arm64]   (default: arm64)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 PKG_NAME="task-timer"
-PKG_ARCH="arm64"
-GOARCH="arm64"
+PKG_ARCH="${1:-arm64}"
+case "$PKG_ARCH" in
+  amd64|arm64) : ;;
+  *) echo "error: unsupported deb arch $PKG_ARCH (want amd64 or arm64)" >&2; exit 1 ;;
+esac
+GOARCH="$PKG_ARCH"
 
 VERSION="${VERSION:-1.0.0}"
 BUILD_DIR="${BUILD_DIR:-build}"
 ALLOW_MISSING_ICONS="${ALLOW_MISSING_ICONS:-0}"
 
-STAGING="${BUILD_DIR}/staging/deb"
+STAGING="${BUILD_DIR}/staging/deb-${PKG_ARCH}"
 ROOT="${STAGING}/root"
 DIST_DIR="${BUILD_DIR}/dist"
 BIN_SRC="${BUILD_DIR}/bin/linux-${GOARCH}"
@@ -27,7 +33,7 @@ ICON_PNG_DIR="${BUILD_DIR}/icons/png"
 
 ICON_SIZES="16 32 48 64 128 256 512 1024"
 
-for b in "${PKG_NAME}" "${PKG_NAME}-sync"; do
+for b in "${PKG_NAME}" "${PKG_NAME}-daemon"; do
   if [ ! -f "${BIN_SRC}/${b}" ]; then
     echo "error: missing binary ${BIN_SRC}/${b} - run 'make docker-build' first" >&2
     exit 1
@@ -43,8 +49,8 @@ mkdir -p "${ROOT}/DEBIAN" \
 mkdir -p "$DIST_DIR"
 
 # --- binaries (both of them) ------------------------------------------------
-install -m 0755 "${BIN_SRC}/${PKG_NAME}"        "${ROOT}/usr/local/bin/${PKG_NAME}"
-install -m 0755 "${BIN_SRC}/${PKG_NAME}-sync"   "${ROOT}/usr/local/bin/${PKG_NAME}-sync"
+install -m 0755 "${BIN_SRC}/${PKG_NAME}"          "${ROOT}/usr/local/bin/${PKG_NAME}"
+install -m 0755 "${BIN_SRC}/${PKG_NAME}-daemon"   "${ROOT}/usr/local/bin/${PKG_NAME}-daemon"
 
 # --- desktop entry ----------------------------------------------------------
 install -m 0644 "pkg/${PKG_NAME}.desktop" \
@@ -54,8 +60,8 @@ install -m 0644 "pkg/${PKG_NAME}.desktop" \
 # A user unit, not a system one: the daemon reads a per-user database and a
 # per-user token. Shipping the binary without this is how the backend ends up
 # installed but never running.
-install -m 0644 "pkg/systemd/${PKG_NAME}-sync.service" \
-  "${ROOT}/usr/lib/systemd/user/${PKG_NAME}-sync.service"
+install -m 0644 "pkg/systemd/${PKG_NAME}-daemon.service" \
+  "${ROOT}/usr/lib/systemd/user/${PKG_NAME}-daemon.service"
 
 # --- maintainer scripts -----------------------------------------------------
 # The service is not enabled for the user automatically. It is a network-polling

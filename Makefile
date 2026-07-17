@@ -42,15 +42,15 @@ ifeq ($(UNAME),Darwin)
 HOST_OS           := darwin
 GUI_BIN           := TaskTimer
 DAEMON_BIN          := TaskTimer-Daemon
-MAC_TARGETS       := mac-app
-DMG_TARGET        := dmg
+MAC_TARGETS       := mac-app-x86_64 mac-app-aarch64
+DMG_TARGETS       := dmg-x86_64 dmg-aarch64
 SERVER_MAC_TARGET := mac-server-app
 else
 HOST_OS           := linux
 GUI_BIN           := task-timer
 DAEMON_BIN          := task-timer-daemon
 MAC_TARGETS       :=
-DMG_TARGET        :=
+DMG_TARGETS       :=
 SERVER_MAC_TARGET :=
 endif
 
@@ -59,7 +59,25 @@ HOST_BIN_DIR := $(BIN_DIR)/$(HOST_OS)-$(HOST_ARCH)
 # Windows ships one installer per CPU: an arm64 binary cannot run on x64, and an
 # x64 binary only runs on ARM64 Windows under emulation. Both are cross-compiled
 # in the build container (see Dockerfile.build).
+#
+# WIN_ARCHES is the Go spelling (GOARCH), used only for the build/bin/windows-<goarch>
+# paths the cross-compiler writes. EXE_ARCHES is the uniform public arch label used
+# in every artifact name (see the naming standard below); the package scripts map it
+# back to GOARCH internally.
 WIN_ARCHES := amd64 arm64
+EXE_ARCHES := x86_64 aarch64
+
+# ARCH NAMING STANDARD: every artifact name uses x86_64 (Intel/AMD) and aarch64
+# (ARM) -- rpm, Windows installers, and the macOS app/dmg. The ONE exception is
+# the .deb, whose Architecture field dpkg mandates as amd64/arm64: a deb tagged
+# x86_64 is rejected and will not install, so deb keeps its ecosystem's spelling.
+# GOARCH (amd64/arm64) still appears in build/bin/<goos>-<goarch> paths only; the
+# package scripts map the public label back to GOARCH internally.
+#
+# The client is CGO (Fyne X11/GL + go-sqlite3). Both Linux arches are produced by
+# the build container (see Dockerfile.build).
+CLIENT_DEB_ARCHES := amd64 arm64
+CLIENT_RPM_ARCHES := x86_64 aarch64
 
 # The gateway is pure Go and cross-compiles to any CPU, so it ships for both.
 # deb and rpm spell the architectures differently (amd64/arm64 vs x86_64/aarch64).
@@ -87,7 +105,7 @@ export GIT_COMMIT
 export ALLOW_MISSING_ICONS
 
 .PHONY: all build icons test vet fmt lint docker-build docker-package \
-        mac-app dmg deb rpm exe package release clean help dirs \
+        mac-app-x86_64 mac-app-aarch64 dmg-x86_64 dmg-aarch64 deb rpm exe package release clean help dirs \
         server-deb server-rpm server-exe server-package server-test \
         mac-server-app server-docker
 
@@ -141,49 +159,65 @@ docker-build: dirs
 	@if [ "$(DOCKER)" = "podman" ]; then podman system prune -f >/dev/null 2>&1 || true; fi
 	$(DOCKER) build --pull -f Dockerfile.build -t $(IMAGE_TAG) .
 	$(DOCKER) run --rm -v $(ABS_BUILD)/bin:/out $(IMAGE_TAG)
-	@test -f $(BIN_DIR)/linux-arm64/task-timer || { echo "missing $(BIN_DIR)/linux-arm64/task-timer" >&2; exit 1; }
+	@for a in arm64 amd64; do \
+		test -f $(BIN_DIR)/linux-$$a/task-timer || { echo "missing $(BIN_DIR)/linux-$$a/task-timer" >&2; exit 1; }; \
+		test -f $(BIN_DIR)/linux-$$a/task-timer-daemon || { echo "missing $(BIN_DIR)/linux-$$a/task-timer-daemon" >&2; exit 1; }; \
+	done
 	@for a in $(WIN_ARCHES); do \
 		test -f $(BIN_DIR)/windows-$$a/task-timer.exe || { echo "missing $(BIN_DIR)/windows-$$a/task-timer.exe" >&2; exit 1; }; \
 		test -f $(BIN_DIR)/windows-$$a/task-timer-daemon.exe || { echo "missing $(BIN_DIR)/windows-$$a/task-timer-daemon.exe" >&2; exit 1; }; \
 	done
 
-## mac-app: assemble build/dist/TaskTimer.app (macOS host only)
-mac-app: dirs icons
-	@if [ "$(UNAME)" != "Darwin" ]; then echo "mac-app requires a macOS host - skipping"; exit 0; fi
-	./scripts/mac-app.sh
+## mac-app-x86_64: assemble build/dist/TaskTimer-x86_64.app, Intel/AMD (macOS host only)
+mac-app-x86_64: dirs icons
+	@if [ "$(UNAME)" != "Darwin" ]; then echo "mac-app-x86_64 requires a macOS host - skipping"; exit 0; fi
+	./scripts/mac-app.sh x86_64
 
-## dmg: build build/dist/TaskTimer.dmg (macOS host only)
-dmg: mac-app
-	@if [ "$(UNAME)" != "Darwin" ]; then echo "dmg requires a macOS host - skipping"; exit 0; fi
-	./pkg/dmg.sh
+## mac-app-aarch64: assemble build/dist/TaskTimer-aarch64.app, ARM (macOS host only)
+mac-app-aarch64: dirs icons
+	@if [ "$(UNAME)" != "Darwin" ]; then echo "mac-app-aarch64 requires a macOS host - skipping"; exit 0; fi
+	./scripts/mac-app.sh aarch64
 
-## deb: build the .deb into build/dist (runs in the build container)
+## dmg-x86_64: build build/dist/TaskTimer-x86_64.dmg, Intel/AMD (macOS host only)
+dmg-x86_64: mac-app-x86_64
+	@if [ "$(UNAME)" != "Darwin" ]; then echo "dmg-x86_64 requires a macOS host - skipping"; exit 0; fi
+	./pkg/dmg.sh x86_64
+
+## dmg-aarch64: build build/dist/TaskTimer-aarch64.dmg, ARM (macOS host only)
+dmg-aarch64: mac-app-aarch64
+	@if [ "$(UNAME)" != "Darwin" ]; then echo "dmg-aarch64 requires a macOS host - skipping"; exit 0; fi
+	./pkg/dmg.sh aarch64
+
+## deb: build the .deb for every arch into build/dist (runs in the build container)
 deb: docker-build icons
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) \
 		-e ALLOW_MISSING_ICONS=$(ALLOW_MISSING_ICONS) \
-		$(IMAGE_TAG) ./pkg/package-deb.sh
+		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(CLIENT_DEB_ARCHES); do ./pkg/package-deb.sh "$$a"; done'
 
-## rpm: build the .rpm into build/dist (runs in the build container)
+## rpm: build the .rpm for every arch into build/dist (runs in the build container)
 rpm: docker-build icons
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) \
 		-e ALLOW_MISSING_ICONS=$(ALLOW_MISSING_ICONS) \
-		$(IMAGE_TAG) ./pkg/package-rpm.sh
+		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(CLIENT_RPM_ARCHES); do ./pkg/package-rpm.sh "$$a"; done'
 
 ## exe: build the Windows installers (one per arch) into build/dist
 exe: docker-build icons
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) \
 		-e ALLOW_MISSING_ICONS=$(ALLOW_MISSING_ICONS) \
-		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(WIN_ARCHES); do ./pkg/package-exe.sh "$$a"; done'
+		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(EXE_ARCHES); do ./pkg/package-exe.sh "$$a"; done'
 
 ## docker-package: deb + rpm + exe (all arches) in one container run
 docker-package: docker-build icons
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) \
 		-e ALLOW_MISSING_ICONS=$(ALLOW_MISSING_ICONS) \
-		$(IMAGE_TAG) /bin/sh -c 'set -eu; ./pkg/package-deb.sh; ./pkg/package-rpm.sh; for a in $(WIN_ARCHES); do ./pkg/package-exe.sh "$$a"; done'
+		$(IMAGE_TAG) /bin/sh -c 'set -eu; \
+			for a in $(CLIENT_DEB_ARCHES); do ./pkg/package-deb.sh "$$a"; done; \
+			for a in $(CLIENT_RPM_ARCHES); do ./pkg/package-rpm.sh "$$a"; done; \
+			for a in $(EXE_ARCHES); do ./pkg/package-exe.sh "$$a"; done'
 
 # ---------------------------------------------------------------------------
 # The server. A separate package from the client, built from server/ rather than
@@ -213,7 +247,7 @@ server-exe: dirs
 	$(DOCKER) build --pull -f Dockerfile.build -t $(IMAGE_TAG) .
 	$(DOCKER) run --rm -v $(ROOT_DIR):/src -w /src \
 		-e BUILD_DIR=$(BUILD_DIR) -e VERSION=$(VERSION) -e ALLOW_MISSING_ICONS=$(ALLOW_MISSING_ICONS) \
-		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(WIN_ARCHES); do ./pkg/package-server-exe.sh "$$a"; done'
+		$(IMAGE_TAG) /bin/sh -c 'set -eu; for a in $(EXE_ARCHES); do ./pkg/package-server-exe.sh "$$a"; done'
 
 ## mac-server-app: assemble build/dist/TaskTimerServer.app (macOS host only)
 mac-server-app: dirs
@@ -234,10 +268,10 @@ server-package: dirs
 		$(IMAGE_TAG) /bin/sh -c 'set -eu; \
 			for a in $(SERVER_DEB_ARCHES); do ./pkg/package-server-deb.sh "$$a"; done; \
 			for a in $(SERVER_RPM_ARCHES); do ./pkg/package-server-rpm.sh "$$a"; done; \
-			for a in $(WIN_ARCHES); do ./pkg/package-server-exe.sh "$$a"; done'
+			for a in $(EXE_ARCHES); do ./pkg/package-server-exe.sh "$$a"; done'
 
 ## package: every package this host can produce, client and server
-package: docker-package server-package $(DMG_TARGET) $(SERVER_MAC_TARGET)
+package: docker-package server-package $(DMG_TARGETS) $(SERVER_MAC_TARGET)
 
 ## release: test + vet + build everything, then list the artifacts
 release: test vet build package

@@ -1,25 +1,31 @@
 #!/usr/bin/env bash
 #
-# Build the RPM package.
+# Build the RPM package, for one architecture.
 #
-# Scratch: build/staging/rpm   (rpmbuild tree lives here, never /tmp)
-# Input:   build/bin/linux-arm64/{task-timer,task-timer-daemon}
+# Scratch: build/staging/rpm-<arch>   (rpmbuild tree lives here, never /tmp)
+# Input:   build/bin/linux-<goarch>/{task-timer,task-timer-daemon}
 #          build/icons/png/icon_<N>.png
-# Output:  build/dist/task-timer-<version>-1.aarch64.rpm
+# Output:  build/dist/task-timer-<version>-1.<arch>.rpm
+#
+# Usage: package-rpm.sh [x86_64|aarch64]   (default: aarch64)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 PKG_NAME="task-timer"
-PKG_ARCH="aarch64"
-GOARCH="arm64"
+PKG_ARCH="${1:-aarch64}"
+case "$PKG_ARCH" in
+  x86_64)  GOARCH="amd64" ;;
+  aarch64) GOARCH="arm64" ;;
+  *) echo "error: unsupported rpm arch $PKG_ARCH (want x86_64 or aarch64)" >&2; exit 1 ;;
+esac
 
 VERSION="${VERSION:-1.0.0}"
 BUILD_DIR="${BUILD_DIR:-build}"
 ALLOW_MISSING_ICONS="${ALLOW_MISSING_ICONS:-0}"
 
-STAGING="${BUILD_DIR}/staging/rpm"
+STAGING="${BUILD_DIR}/staging/rpm-${PKG_ARCH}"
 RPMBUILD="${STAGING}/rpmbuild"
 PAYLOAD="${STAGING}/payload"
 DIST_DIR="${BUILD_DIR}/dist"
@@ -28,7 +34,7 @@ ICON_PNG_DIR="${BUILD_DIR}/icons/png"
 
 ICON_SIZES="16 32 48 64 128 256 512 1024"
 
-for b in "${PKG_NAME}" "${PKG_NAME}-sync"; do
+for b in "${PKG_NAME}" "${PKG_NAME}-daemon"; do
   if [ ! -f "${BIN_SRC}/${b}" ]; then
     echo "error: missing binary ${BIN_SRC}/${b} - run 'make docker-build' first" >&2
     exit 1
@@ -44,14 +50,14 @@ mkdir -p "${PAYLOAD}/usr/local/bin" "${PAYLOAD}/usr/share/applications" \
 mkdir -p "$DIST_DIR"
 
 # --- payload: same content as the deb ---------------------------------------
-install -m 0755 "${BIN_SRC}/${PKG_NAME}"      "${PAYLOAD}/usr/local/bin/${PKG_NAME}"
-install -m 0755 "${BIN_SRC}/${PKG_NAME}-sync" "${PAYLOAD}/usr/local/bin/${PKG_NAME}-sync"
+install -m 0755 "${BIN_SRC}/${PKG_NAME}"        "${PAYLOAD}/usr/local/bin/${PKG_NAME}"
+install -m 0755 "${BIN_SRC}/${PKG_NAME}-daemon" "${PAYLOAD}/usr/local/bin/${PKG_NAME}-daemon"
 install -m 0644 "pkg/${PKG_NAME}.desktop" \
   "${PAYLOAD}/usr/share/applications/${PKG_NAME}.desktop"
 
 # The sync daemon's user unit, exactly as the deb ships it.
-install -m 0644 "pkg/systemd/${PKG_NAME}-sync.service" \
-  "${PAYLOAD}/usr/lib/systemd/user/${PKG_NAME}-sync.service"
+install -m 0644 "pkg/systemd/${PKG_NAME}-daemon.service" \
+  "${PAYLOAD}/usr/lib/systemd/user/${PKG_NAME}-daemon.service"
 
 ICON_FILES=""
 icons_found=0
@@ -130,8 +136,8 @@ EOM
 
 %files
 /usr/local/bin/${PKG_NAME}
-/usr/local/bin/${PKG_NAME}-sync
-/usr/lib/systemd/user/${PKG_NAME}-sync.service
+/usr/local/bin/${PKG_NAME}-daemon
+/usr/lib/systemd/user/${PKG_NAME}-daemon.service
 /usr/share/applications/${PKG_NAME}.desktop
 ${ICON_FILES}
 %changelog
@@ -139,7 +145,26 @@ ${ICON_FILES}
 - Initial package
 EOF
 
-rpmbuild --define "_topdir ${RPMBUILD_ABS}" -bb "${RPMBUILD}/SPECS/${PKG_NAME}.spec"
+# Cross-arch packaging on a single-arch host.
+#
+# The build container is pinned to linux/arm64 (Dockerfile.build), so rpmbuild
+# runs on an aarch64 machine. Debian's rpm only lists `noarch` in the aarch64
+# buildarch_compat table, so `--target x86_64` fails the build-arch score check
+# with "No compatible architectures found for build" - even though nothing is
+# compiled here (the Go binary is already cross-compiled and just copied in).
+#
+# We tell rpm that this host may build the foreign arch by adding a
+# buildarch_compat entry via a supplementary rcfile. --rcfile REPLACES the
+# default list, so the stock /usr/lib/rpm/rpmrc is included first, then ours.
+# Both directions are listed so this works whatever arch the host happens to be.
+RPMRC_EXTRA="${STAGING}/rpmrc-cross"
+cat > "$RPMRC_EXTRA" <<'RC'
+buildarch_compat: aarch64: x86_64
+buildarch_compat: x86_64: aarch64
+RC
+
+rpmbuild --rcfile "/usr/lib/rpm/rpmrc:$(cd "$(dirname "$RPMRC_EXTRA")" && pwd)/$(basename "$RPMRC_EXTRA")" \
+  --define "_topdir ${RPMBUILD_ABS}" --target "${PKG_ARCH}" -bb "${RPMBUILD}/SPECS/${PKG_NAME}.spec"
 
 RPM_FILE="${RPMBUILD}/RPMS/${PKG_ARCH}/${PKG_NAME}-${VERSION}-1.${PKG_ARCH}.rpm"
 if [ ! -f "$RPM_FILE" ]; then
